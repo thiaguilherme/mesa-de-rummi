@@ -1,0 +1,1699 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mesa de Rummi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Familjen+Grotesk:wght@400;600;700&display=swap">
+<script src="https://unpkg.com/nostr-tools@2.7.2/lib/nostr.bundle.js"></script>
+<style>
+:root{
+  /* Layout: a felt card table fills the screen; combinations wrap across the felt; a walnut rack docks at the bottom */
+  --felt:#15463d; --felt-2:#0d302a; --wood:#5e3b21; --wood-2:#3d2614; --wood-edge:#80552f;
+  --ivory:#f8f1df; --ivory-2:#e5dbc0; --tile-edge:#b8a984;
+  --ink:#eef5f0; --muted:#a6c3b9; --brass:#f1b53d; --brass-ink:#2b1b04; --ok:#6fdc9a; --bad:#ff8b78;
+  --t0:#c92e28; --t1:#1b5db0; --t2:#202124; --t3:#e0790b;
+  --display:'Alfa Slab One', Rockwell, 'Roboto Slab', Georgia, serif;
+  --ui:'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --tw:clamp(30px, 7.6vw, 42px);
+  --th:calc(var(--tw) * 1.36);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{overflow:hidden}
+#stage{position:fixed;left:0;top:0;width:100%;height:100%;box-sizing:border-box;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+/* Game locked sideways: on a phone held upright the whole stage is turned 90 degrees. */
+html.rot #stage{width:var(--vh);height:var(--vw);transform:translateX(var(--vw)) rotate(90deg);transform-origin:0 0;padding:0 env(safe-area-inset-bottom,0px) 0 env(safe-area-inset-top,0px)}
+body{background:radial-gradient(ellipse at 50% 25%, var(--felt), var(--felt-2) 80%) fixed;background-color:var(--felt-2);color:var(--ink);font-family:var(--ui);font-size:15px;line-height:1.45}
+[hidden]{display:none!important}
+#app{height:100%;display:flex;flex-direction:column;min-height:0}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.screen{flex:1;overflow:auto;padding:28px 16px 40px}
+.wrap{max-width:560px;margin:0 auto;display:grid;gap:22px}
+h1,h2{font-family:var(--display);font-weight:400;margin:0;text-wrap:balance;letter-spacing:.01em}
+h2{font-size:1.35rem}
+p{margin:0}
+.muted{color:var(--muted)}
+.label{font-size:.75rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+
+.tile{width:var(--tw);height:calc(var(--tw) * 1.36);border-radius:6px;border:none;padding:0;flex:none;
+  background:linear-gradient(var(--ivory),var(--ivory-2));box-shadow:0 2px 0 var(--tile-edge),0 4px 7px rgba(0,0,0,.35);
+  font-family:var(--display);font-size:calc(var(--tw) * .56);line-height:1;display:inline-grid;place-items:center;position:relative;
+  cursor:default;transition:transform .12s ease, box-shadow .12s ease;user-select:none;-webkit-user-select:none}
+.tile::after{content:"";position:absolute;bottom:13%;left:35%;width:30%;height:3px;border-radius:2px;background:currentColor;opacity:.3}
+.tile.c0{color:var(--t0)} .tile.c1{color:var(--t1)} .tile.c2{color:var(--t2)} .tile.c3{color:var(--t3)}
+.tile.joker{color:var(--t0)}
+.tile.joker::after{display:none}
+.tile .jk{width:84%;height:auto;margin-top:6%}
+.rack .tile,.live .tile{touch-action:none}
+.tile.lifting{opacity:.3}
+.ghost{position:fixed;left:0;top:0;z-index:40;display:flex;gap:3px;pointer-events:none;filter:drop-shadow(0 10px 14px rgba(0,0,0,.5));transform:translate(-999px,-999px)}
+.ghost .tile{transform:rotate(-3deg) scale(1.08)}
+body.dragging,body.dragging *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+.board.live.drophover{border:none!important;background:rgba(241,181,61,.06)!important}
+.live .tile{cursor:pointer}
+.live .tile:hover{transform:translateY(-2px)}
+.tile.sel{transform:translateY(-7px)!important;box-shadow:0 0 0 3px var(--brass),0 8px 14px rgba(0,0,0,.45)}
+.tile.fresh::before{content:"";position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--brass)}
+.tile.flash{animation:flash 2.8s ease-out}
+@keyframes flash{0%,35%{box-shadow:0 0 0 3px var(--ok),0 4px 7px rgba(0,0,0,.35)}100%{box-shadow:0 2px 0 var(--tile-edge),0 4px 7px rgba(0,0,0,.35)}}
+@media (prefers-reduced-motion:reduce){.tile{transition:none}.tile.flash{animation:none}}
+
+.btn{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover{background:rgba(255,255,255,.14)}
+.btn.primary{background:var(--brass);color:var(--brass-ink);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.warn{border-color:var(--bad);color:var(--bad);background:transparent}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.btn.small{padding:5px 10px;font-size:.85rem}
+input.field{width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:11px 12px;color:var(--ink);font:inherit;font-size:1rem}
+input.field::placeholder{color:var(--muted);opacity:.7}
+input.code{text-transform:uppercase;letter-spacing:.3em;font-family:var(--display);font-size:1.15rem}
+select.field{appearance:none;-webkit-appearance:none;padding-right:34px;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 52%,calc(100% - 13px) 52%;background-size:5px 5px;background-repeat:no-repeat}
+select.field option{background:var(--felt-2);color:var(--ink)}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.opt{display:grid;gap:4px;font-size:.85rem}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);border-radius:999px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:.9rem}
+.seg button.on{background:var(--brass);color:var(--brass-ink);border-color:transparent}
+.clock{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.clock.low{color:var(--bad);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.clock.low{animation:none}}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row > .grow{flex:1;min-width:0}
+.panel{background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:18px;display:grid;gap:12px}
+
+.logo{display:flex;gap:6px;flex-wrap:wrap}
+.logo .tile{--tw:clamp(38px,11vw,54px);cursor:default}
+.lead{font-size:1.05rem;color:var(--muted);max-width:44ch}
+details.rules{font-size:.92rem}
+details.rules summary{cursor:pointer;font-weight:600}
+details.rules ul{margin:10px 0 0;padding-left:20px;display:grid;gap:6px;color:var(--muted)}
+details.rules b{color:var(--ink)}
+
+.bigcode{font-family:var(--display);font-size:clamp(2.4rem,12vw,3.6rem);letter-spacing:.18em;color:var(--brass);line-height:1}
+.plist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.plist li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.05)}
+.plist .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seat{font-family:var(--display);width:26px;height:26px;border-radius:6px;background:var(--ivory);color:var(--t2);display:grid;place-items:center;font-size:.85rem;flex:none}
+.tag{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--brass);font-weight:700}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.dot.off{background:var(--bad)}
+.x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;padding:2px 6px}
+
+.topbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 16px;background:rgba(0,0,0,.22);border-bottom:1px solid rgba(255,255,255,.07)}
+.room{font-family:var(--display);color:var(--brass);letter-spacing:.12em}
+.pool{display:flex;align-items:center;gap:6px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums;color:var(--muted)}
+.chips{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;padding-bottom:2px;scrollbar-width:thin}
+@media (max-width:560px){.chips{order:5;flex-basis:100%}}
+.chip{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.07);white-space:nowrap;font-size:.88rem;flex:none}
+.chip .cnt{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.25);border-radius:999px;padding:0 7px}
+.chip.turn{background:var(--brass);color:var(--brass-ink)}
+.chip.turn .cnt{background:rgba(0,0,0,.15)}
+.chip.away{opacity:.55}
+.chip .m{font-size:.7rem;opacity:.75}
+/* Game table, laid out like a card table seen from your seat:
+   players down the left, the table in the middle, your wooden rack at the bottom,
+   and the action buttons fixed down the right. */
+#app.scr-game{display:block}
+.game{height:100%;display:grid;grid-template-columns:var(--pw,130px) minmax(0,1fr) var(--bw,80px);grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-areas:"players info side" "players board side" "players rack side"}
+.players{grid-area:players;min-height:0;padding:8px 4px 8px 8px;border-right:1px solid rgba(255,255,255,.06)}
+.players ul{list-style:none;margin:0;padding:0;height:100%;display:flex;flex-direction:column;gap:4px}
+.pl{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:10px;min-width:0}
+.pl.me{margin-top:auto}
+.pl.turn{background:rgba(241,181,61,.14)}
+.pl.away{opacity:.5}
+.av{--p:0;width:var(--av,40px);height:var(--av,40px);border-radius:50%;flex:none;padding:3px;box-sizing:border-box;
+  background:conic-gradient(var(--ok) calc(var(--p) * 360deg), rgba(255,255,255,.14) 0)}
+.pl:not(.turn) .av{background:rgba(255,255,255,.14)}
+.av.low{background:conic-gradient(var(--bad) calc(var(--p) * 360deg), rgba(255,255,255,.14) 0)}
+.avt{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;font-family:var(--display);color:#fff;
+  font-size:calc(var(--av,40px) * .36);font-variant-numeric:tabular-nums;border:2px solid var(--felt-2);box-sizing:border-box}
+.avt.c0{background:var(--t0)} .avt.c1{background:var(--t1)} .avt.c2{background:#4b4d55} .avt.c3{background:var(--t3)}
+.pl.turn .avt{font-size:calc(var(--av,40px) * .42)}
+.pinfo{display:grid;min-width:0;line-height:1.2}
+.pn{font-size:.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl.me .pn{color:var(--brass)}
+.pc{display:flex;align-items:center;gap:3px;font-size:.76rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.pc .m{color:var(--ok);margin-left:2px}
+.ti{width:.7em;height:.95em;flex:none}
+.info{grid-area:info;display:flex;align-items:center;gap:6px 12px;padding:6px 10px;font-size:.82rem;white-space:nowrap;min-width:0;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.05)}
+.info .room{font-family:var(--display);color:var(--brass);letter-spacing:.1em}
+.info .you{color:var(--brass);font-family:var(--display);font-weight:400;font-size:.95rem}
+.info .log{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted);text-align:right}
+.info .warnmsg{color:var(--bad);font-weight:700}
+.info .btn.small{padding:3px 8px;font-size:.78rem}
+.board{grid-area:board;overflow:auto;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px 10px;align-content:flex-start;min-height:0}
+.set{display:flex;gap:2px;padding:3px;border-radius:8px;background:rgba(0,0,0,.16);border:1.5px solid transparent;align-items:center}
+.set.ok{border-color:rgba(111,220,154,.45)}
+.set.bad{border-color:var(--bad);background:rgba(255,139,120,.09)}
+.newset{min-width:calc(var(--tw) * 3);height:calc(calc(var(--tw) * 1.36) + 8px);border:1.5px dashed rgba(255,255,255,.28);border-radius:8px;display:grid;place-items:center;color:var(--muted);padding:0 10px;font-size:.75rem;text-align:center}
+.drophover{border-color:var(--brass)!important;background:rgba(241,181,61,.14)!important}
+.board.live.drophover{border:none!important;background:rgba(241,181,61,.05)!important}
+.empty{color:var(--muted);align-self:center;max-width:36ch;font-size:.9rem}
+.meter{font-variant-numeric:tabular-nums;padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.25);font-size:.78rem}
+.meter.done{background:var(--ok);color:#06210f}
+#timer{font-variant-numeric:tabular-nums}
+.rackwrap{grid-area:rack;display:flex;justify-content:center;align-items:flex-end;padding:0 8px;min-width:0}
+.rack{--tw:var(--rt,34px);display:grid;grid-template-columns:repeat(var(--cols,13), var(--rt,34px));grid-auto-rows:calc(var(--rt,34px) * 1.36);gap:4px 3px;
+  padding:7px 9px 8px;border-radius:10px 10px 0 0;max-width:100%;overflow-x:auto;
+  background:linear-gradient(180deg,#b9824c,#8f5c2c 55%,#7a4c22);border:1px solid #c99460;border-bottom:none;
+  box-shadow:inset 0 2px 0 rgba(255,255,255,.18),inset 0 -6px 10px rgba(0,0,0,.25),0 -6px 16px rgba(0,0,0,.35)}
+.rslot{border-radius:5px;background:rgba(0,0,0,.13);display:grid}
+.rslot .tile{width:100%;height:100%}
+.rslot.drophover{background:rgba(255,236,190,.45)!important}
+.watch{padding:10px 0 14px}
+.side{grid-area:side;display:flex;flex-direction:column;justify-content:space-between;gap:8px;padding:8px 8px 10px;min-height:0;border-left:1px solid rgba(255,255,255,.06)}
+html:not(.rot) .side{padding-bottom:78px} /* clear of the hosting site's corner badge */
+html.rot .side{padding-top:50px}
+.sidemid,.sidebot{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.sidetop{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px}
+.sidetop .vbtns{justify-content:center;flex-wrap:wrap;gap:2px 6px}
+.sidetop .ibtn{width:32px;height:32px}
+.sidetop .ibtn svg{width:16px;height:16px}
+.sidetop .calltime{font-size:.72rem;text-align:center}
+.sbtn{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);border-radius:12px;padding:6px 4px;color:var(--ink);display:grid;place-items:center;gap:2px;cursor:pointer;font-weight:700;font-size:.72rem;line-height:1.1}
+.sbtn:hover:not(:disabled){background:rgba(255,255,255,.15)}
+.sbtn:disabled{opacity:.35;cursor:not-allowed}
+.sbtn svg{width:20px;height:20px}
+.sbtn.exit{width:30px;height:30px;padding:0;border-radius:50%;flex:none}
+.sbtn.exit svg{width:14px;height:14px}
+.sbtn.exit.warn{width:auto;height:30px;padding:0 8px;border-radius:999px;display:flex;gap:4px;font-size:.66rem}
+.sbtn.exit.warn{border-color:var(--bad);color:var(--bad)}
+.sbtn.sort{font-family:var(--display);font-weight:400;font-size:clamp(.95rem,2.6vh,1.25rem);letter-spacing:.04em;padding:9px 4px;background:rgba(27,93,176,.35);border-color:rgba(120,170,240,.4)}
+.sbtn.ok{background:var(--ok);border-color:var(--ok);color:#06210f}
+.sbtn.draw{border:2px solid var(--brass);background:rgba(241,181,61,.1);padding:8px 4px}
+.sbtn.draw .plus{font-size:2rem;line-height:.9;color:var(--brass);font-weight:400}
+.sbtn.draw .cnt{display:flex;align-items:center;gap:3px;font-size:.8rem;font-variant-numeric:tabular-nums}
+.tile.last{box-shadow:0 0 0 2px var(--brass),0 2px 0 var(--tile-edge),0 4px 7px rgba(0,0,0,.35)}
+.tile.blink{animation:blink .45s ease-in-out 6 alternate}
+@keyframes blink{from{box-shadow:0 0 0 2px var(--brass),0 0 12px 3px rgba(241,181,61,.9)}to{box-shadow:0 0 0 2px transparent,0 2px 0 var(--tile-edge)}}
+.tile.pending{opacity:.75;outline:2px dashed rgba(255,255,255,.55);outline-offset:1px}
+@media (prefers-reduced-motion:reduce){.tile.blink{animation:none}}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:16px;z-index:20}
+.card{background:var(--felt-2);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:22px;max-width:420px;width:100%;display:grid;gap:14px;max-height:90vh;overflow:auto}
+.results{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.results li{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.05);font-variant-numeric:tabular-nums}
+.results li.win{background:var(--brass);color:var(--brass-ink)}
+.results .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbtns{display:flex;gap:6px;align-items:center;flex:none}
+.ibtn{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:var(--ink);display:grid;place-items:center;cursor:pointer;position:relative;padding:0;flex:none;transition:background .15s,color .15s,border-color .15s}
+.ibtn svg{width:19px;height:19px}
+.ibtn:hover{background:rgba(255,255,255,.15)}
+.ibtn.live{background:var(--ok);border-color:var(--ok);color:#06210f}
+.ibtn.ongoing{border-color:var(--ok);color:var(--ok)}
+.ibtn .badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--ivory);color:var(--t2);font-size:.68rem;font-weight:700;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.calltime{font-variant-numeric:tabular-nums;font-weight:700;font-size:.85rem;color:var(--ok);min-width:3.2ch}
+.incoming{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:35;width:min(420px,calc(100% - 32px));
+  display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px 14px;align-items:center;padding:14px 16px;border-radius:16px;
+  background:var(--felt-2);border:1px solid var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.55);animation:dropin .25s ease-out}
+.incoming .ring-ic{width:44px;height:44px;border-radius:50%;background:var(--ok);color:#06210f;display:grid;place-items:center;animation:ringpulse 1.4s ease-in-out infinite}
+.incoming .ring-ic svg{width:22px;height:22px}
+.incoming .who{display:grid;gap:2px;min-width:0}
+.incoming .who strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.incoming .who span{color:var(--muted);font-size:.85rem}
+.incoming .answer{grid-column:1 / -1;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cbtn{display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border-radius:12px;border:none;font-weight:700;cursor:pointer}
+.cbtn svg{width:20px;height:20px}
+.cbtn.no{background:var(--bad);color:#2a0702}
+.cbtn.yes{background:var(--ok);color:#06210f}
+@keyframes ringpulse{0%,100%{box-shadow:0 0 0 0 rgba(111,220,154,.65)}50%{box-shadow:0 0 0 10px rgba(111,220,154,0)}}
+@keyframes dropin{from{transform:translate(-50%,-12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+@media (prefers-reduced-motion:reduce){.incoming,.incoming .ring-ic{animation:none}}
+/* Phones held sideways on the start and waiting screens: two columns */
+@media (orientation:landscape) and (max-height:520px){
+  .screen{padding-block:18px 24px}
+  .scr-home .wrap,.scr-lobby .wrap{max-width:920px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px}
+  .wrap > .logo,.wrap > .lead,.wrap > .banner,.wrap > details,.wrap > .row{grid-column:1 / -1}
+  .logo .tile{--tw:clamp(32px,9vh,44px)}
+}
+.toast{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--ivory);color:var(--t2);padding:10px 16px;border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.4);z-index:30;max-width:calc(100% - 32px);font-weight:600}
+.toast.err{background:var(--bad);color:#2a0702}
+</style>
+</head>
+<body>
+<div id="stage">
+<div id="app"></div>
+<div id="voice"></div>
+<div id="toast" class="toast" hidden></div>
+</div>
+<div id="voice-audio" hidden></div>
+
+<script>
+(() => {
+const CNAME = ['vermelho', 'azul', 'preto', 'laranja'];
+const $ = s => document.querySelector(s);
+const app = $('#app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Seat, room and host state are kept per tab (survive a reload); the nickname is remembered across tabs.
+const ls = (k, v) => {
+  try {
+    const store = k === 'rummi.nick' ? localStorage : sessionStorage;
+    if (v === undefined) return store.getItem(k);
+    if (v === null) store.removeItem(k); else store.setItem(k, v);
+  } catch (e) { return null; }
+};
+const rnd = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const fmt = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+const cleanName = s => String(s || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20) || 'Jogador';
+
+const me = { id: null };
+let nick = '';
+let code = null;
+let G = null;              // the view of the game this device receives
+let clockOff = 0;
+let W = null;              // working copy during my turn
+let sel = new Set();
+let rackOrder = [];
+let prevBoard = null, prevRev = null, flash = new Set(), flashTimer = null;
+const st = { screen: 'boot', msg: '', canSkip: false, confirmSkip: false, confirmClose: false, offline: false };
+
+/* Networking: the person who creates the room is the host and keeps the full game.
+   Messages travel through public relays over HTTPS (port 443), so they also pass
+   restrictive networks. Every message is signed; each player's rack is encrypted
+   so that only that player can read it. */
+const RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://offchain.pub', 'wss://nostr.mom', 'wss://relay.damus.io'];
+const KIND = 21333;          // ephemeral: relays forward these and never store them
+const PREFIX = 'mesa-de-rummi-v2-';
+const NT = window.NostrTools;
+let sk = null;               // signing key (per tab)
+const hex = u => Array.from(u, b => b.toString(16).padStart(2, '0')).join('');
+const unhex = s => Uint8Array.from(s.match(/../g), h => parseInt(h, 16));
+const b64 = u => { let s = ''; u.forEach(b => s += String.fromCharCode(b)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+const net = { sockets: [], tag: null, seen: new Set(), seenQ: [], onMsg: null, pending: [] };
+function netOpen(tag, onMsg) {
+  netClose();
+  net.tag = tag; net.onMsg = onMsg;
+  RELAYS.forEach(url => {
+    const s = { url, ws: null, ready: false, closed: false, retry: 1000 };
+    const later = () => { if (!s.closed) { setTimeout(open, s.retry); s.retry = Math.min(s.retry * 2, 20000); } };
+    const open = () => {
+      if (s.closed) return;
+      let ws; try { ws = new WebSocket(url); } catch (e) { return later(); }
+      s.ws = ws;
+      ws.onopen = () => {
+        if (s.closed) { ws.close(); return; }
+        s.ready = true; s.retry = 1000;
+        ws.send(JSON.stringify(['REQ', 'mesa', { kinds: [KIND], '#t': [net.tag] }]));
+        net.pending.splice(0).forEach(p => net.sockets.forEach(x => x.ready && x.ws.send(p)));
+        netStatus();
+      };
+      ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } if (m[0] === 'EVENT' && m[2]) netEvent(m[2]); };
+      ws.onclose = () => { s.ready = false; netStatus(); later(); };
+      ws.onerror = () => {};
+    };
+    net.sockets.push(s); open();
+  });
+}
+function netClose() {
+  net.sockets.forEach(s => { s.closed = true; s.ready = false; try { s.ws && s.ws.close(); } catch (e) {} });
+  net.sockets = []; net.pending = []; net.tag = null;
+}
+function netStatus() {
+  const off = net.sockets.length > 0 && !net.sockets.some(s => s.ready);
+  if (off !== st.offline) { st.offline = off; render(); }
+}
+function netEvent(ev) {
+  if (net.seen.has(ev.id)) return;
+  net.seen.add(ev.id); net.seenQ.push(ev.id);
+  if (net.seenQ.length > 500) net.seen.delete(net.seenQ.shift());
+  if (ev.pubkey === me.id || ev.kind !== KIND) return;
+  if (!ev.tags.some(t => t[0] === 't' && t[1] === net.tag)) return;
+  try { if (!NT.verifyEvent(ev)) return; } catch (e) { return; }
+  let m; try { m = JSON.parse(ev.content); } catch (e) { return; }
+  if (!m || typeof m !== 'object') return;
+  if (typeof m.t === 'string' && m.t.startsWith('v-')) { voiceMsg(ev.pubkey, m); return; }
+  if (m.t === 'live') { liveMsg(ev.pubkey, m); return; }
+  if (net.onMsg) net.onMsg(ev.pubkey, m);
+}
+function netSend(msg) {
+  if (!net.tag) return;
+  const ev = NT.finalizeEvent({ kind: KIND, created_at: Math.floor(Date.now() / 1000), tags: [['t', net.tag]], content: JSON.stringify(msg) }, sk);
+  const p = JSON.stringify(['EVENT', ev]);
+  let sent = false;
+  net.sockets.forEach(s => { if (s.ready) { try { s.ws.send(p); sent = true; } catch (e) {} } });
+  if (!sent) { net.pending.push(p); if (net.pending.length > 20) net.pending.shift(); }
+}
+
+/* Rack encryption: ECDH (P-256) between host and each player, AES-GCM per message. */
+let ecdhPriv = null, ecdhPub = null;
+async function initEcdh() {
+  try {
+    const saved = JSON.parse(ls('rummi.ecdh') || 'null');
+    if (saved) { ecdhPriv = await crypto.subtle.importKey('jwk', saved.priv, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveKey']); ecdhPub = saved.pub; return; }
+  } catch (e) {}
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+  ecdhPub = b64(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)));
+  ls('rummi.ecdh', JSON.stringify({ priv: await crypto.subtle.exportKey('jwk', kp.privateKey), pub: ecdhPub }));
+  ecdhPriv = kp.privateKey;
+}
+async function deriveKey(pubB64) {
+  const pub = await crypto.subtle.importKey('raw', unb64(pubB64), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  return crypto.subtle.deriveKey({ name: 'ECDH', public: pub }, ecdhPriv, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj))));
+  return b64(iv) + '.' + b64(ct);
+}
+async function unseal(key, s) {
+  const [a, b] = s.split('.');
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(a) }, key, unb64(b))));
+}
+
+let hosting = false, S = null;
+const lastSeen = new Map();  // pid -> time of last message (host only)
+const playerKeys = new Map(); // pid -> AES key (host only)
+let hostPk = null, hostKey = null, hostKeyFor = null, lastHostMsg = 0, joinTimer = null, helloTimer = null;
+
+/* ---------- Tiles & rules ---------- */
+let TT = [], TTc = 0;
+function tiles(copies) {
+  if (TTc === copies) return TT;
+  const t = []; let id = 0;
+  for (let k = 0; k < copies; k++) for (let c = 0; c < 4; c++) for (let n = 1; n <= 13; n++) t.push({ id: id++, c, n, j: false });
+  for (let k = 0; k < copies; k++) t.push({ id: id++, c: -1, n: 0, j: true });
+  TT = t; TTc = copies; return t;
+}
+const tv = id => TT[id].j ? 30 : TT[id].n;
+
+function analyze(ids) {
+  const ts = ids.map(i => TT[i]); const n = ts.length;
+  const jk = ts.filter(t => t.j), nj = ts.filter(t => !t.j);
+  let best = null;
+  if (n >= 3 && nj.length) {
+    if (n <= 4 && nj.every(t => t.n === nj[0].n) && new Set(nj.map(t => t.c)).size === nj.length) {
+      best = { valid: true, kind: 'group', value: nj[0].n * n, layout: [...nj].sort((a, b) => a.c - b.c).concat(jk).map(t => t.id) };
+    }
+    if (n <= 13 && nj.every(t => t.c === nj[0].c)) {
+      const nums = nj.map(t => t.n);
+      if (new Set(nums).size === nums.length) {
+        const mn = Math.min(...nums), mx = Math.max(...nums);
+        const start = Math.min(mn, 14 - n);
+        if (mx - mn + 1 <= n && start >= 1 && start + n - 1 >= mx) {
+          const v = n * start + n * (n - 1) / 2;
+          const byN = {}; nj.forEach(t => byN[t.n] = t); const js = [...jk]; const layout = [];
+          for (let x = start; x < start + n; x++) layout.push(byN[x] ? byN[x].id : js.shift().id);
+          if (!best || v > best.value) best = { valid: true, kind: 'run', value: v, layout };
+        }
+      }
+    }
+  }
+  return best || { valid: false, value: 0, layout: ids };
+}
+
+// Shared by the player's screen (instant feedback) and the host (the referee).
+function validateMove(startBoard, rack, melded, board) {
+  if (!Array.isArray(board) || board.some(s => !Array.isArray(s))) return 'Jogada inválida.';
+  const all = board.flat();
+  if (new Set(all).size !== all.length || all.some(i => !Number.isInteger(i) || !TT[i])) return 'Jogada inválida.';
+  const startIds = new Set(startBoard.flat()), mine = new Set(rack);
+  if (all.some(i => !startIds.has(i) && !mine.has(i))) return 'Jogada inválida.';
+  const played = all.filter(i => mine.has(i));
+  if (!played.length) return 'Coloque pelo menos uma peça na mesa ou compre uma peça.';
+  const now = new Set(all);
+  if ([...startIds].some(i => !now.has(i))) return 'Peças que já estavam na mesa precisam continuar na mesa.';
+  if (board.some(s => !analyze(s).valid)) return 'Há combinações inválidas (contorno vermelho). Toda combinação precisa de 3 ou mais peças: sequência da mesma cor ou trinca/quadra de cores diferentes.';
+  if (!melded) {
+    const key = s => [...s].sort((a, b) => a - b).join(',');
+    const left = new Map(); startBoard.forEach(s => left.set(key(s), (left.get(key(s)) || 0) + 1));
+    const fresh = [];
+    board.forEach(s => { const k = key(s); if (left.get(k)) left.set(k, left.get(k) - 1); else fresh.push(s); });
+    if ([...left.values()].some(v => v > 0) || fresh.some(s => s.some(i => !mine.has(i))))
+      return 'Antes da primeira descida você não pode mexer nas combinações da mesa. Use só peças do seu suporte.';
+    const pts = fresh.reduce((a, s) => a + analyze(s).value, 0);
+    if (pts < 30) return `A primeira descida precisa somar 30 pontos. Você tem ${pts}.`;
+  }
+  return null;
+}
+
+/* ---------- Robots ----------
+   Easy: only lays down combinations from its own rack, and sometimes just draws.
+   Medium: also adds its tiles to the ends of combinations on the table.
+   Hard: also rebuilds the whole table to fit as many of its tiles as possible. */
+const BOT_LEVELS = { easy: 'fácil', medium: 'médio', hard: 'difícil' };
+const isBot = pid => typeof pid === 'string' && pid.startsWith('bot');
+
+// Every valid combination that can be formed from `ids`. Tiles of the same kind are
+// interchangeable, so one id per kind is used, preferring ids listed in `prefer`.
+function combosFrom(ids, prefer) {
+  const kinds = new Map(); const jokers = [];
+  ids.forEach(i => {
+    const t = TT[i];
+    if (t.j) { jokers.push(i); return; }
+    const k = t.c * 16 + t.n, cur = kinds.get(k);
+    if (cur === undefined || (prefer && prefer.has(i) && !prefer.has(cur))) kinds.set(k, i);
+  });
+  if (prefer) jokers.sort((a, b) => (prefer.has(b) ? 1 : 0) - (prefer.has(a) ? 1 : 0));
+  const J = jokers.length, out = [];
+  for (let n = 1; n <= 13; n++) {
+    const cs = [0, 1, 2, 3].filter(c => kinds.has(c * 16 + n));
+    for (let mask = 1; mask < (1 << cs.length); mask++) {
+      const pick = cs.filter((c, i) => mask & (1 << i)).map(c => kinds.get(c * 16 + n));
+      for (let j = 0; j <= Math.min(J, 2); j++) {
+        const size = pick.length + j;
+        if (pick.length >= 2 && size >= 3 && size <= 4) out.push(pick.concat(jokers.slice(0, j)));
+      }
+    }
+  }
+  for (let c = 0; c < 4; c++) {
+    for (let s = 1; s <= 11; s++) {
+      for (let e = s + 2; e <= 13; e++) {
+        const real = [], miss = [];
+        for (let n = s; n <= e; n++) (kinds.has(c * 16 + n) ? real.push(kinds.get(c * 16 + n)) : miss.push(n));
+        if (miss.length > J) break;
+        if (real.length >= 2 && !(e - s + 1 > 3 && (miss[0] === s || miss[miss.length - 1] === e)))
+          out.push(real.concat(jokers.slice(0, miss.length)));
+      }
+    }
+  }
+  return out;
+}
+
+// Best way to lay down tiles from `ids` as separate combinations, within a time budget.
+function bestPartition(ids, budgetMs, score) {
+  const deadline = performance.now() + budgetMs;
+  let best = { sets: [], score: 0 };
+  const rec = (avail, chosen, sc) => {
+    if (sc > best.score) best = { sets: chosen.slice(), score: sc };
+    if (performance.now() > deadline) return;
+    const cands = combosFrom(avail);
+    if (!cands.length) return;
+    const t = cands[0].find(i => !TT[i].j) ?? cands[0][0];
+    const kind = TT[t].c * 16 + TT[t].n;
+    const withT = cands.filter(s => s.some(i => !TT[i].j && TT[i].c * 16 + TT[i].n === kind)).sort((a, b) => score(b) - score(a)).slice(0, 6);
+    for (const s of withT) { const used = new Set(s); rec(avail.filter(i => !used.has(i)), [...chosen, s], sc + score(s)); }
+    rec(avail.filter(i => i !== t), chosen, sc);
+  };
+  rec(ids, [], 0);
+  return best.sets;
+}
+
+// Add tiles from the rack to the ends of combinations already on the table.
+function extendBoard(board, rack) {
+  let changed = true;
+  const left = [...rack].sort((a, b) => TT[a].j - TT[b].j);
+  while (changed) {
+    changed = false;
+    for (const t of [...left]) {
+      for (let i = 0; i < board.length; i++) {
+        const a = analyze([...board[i], t]);
+        if (a.valid) { board[i] = a.layout; left.splice(left.indexOf(t), 1); changed = true; break; }
+      }
+    }
+  }
+  return left;
+}
+
+// Rebuild the table: every tile on it must stay in some combination; fit in as many rack tiles as possible.
+function rebuildTable(boardIds, rack, budgetMs) {
+  const deadline = performance.now() + budgetMs;
+  const must = new Set(boardIds);
+  let best = null;
+  const finish = (avail, chosen) => {
+    const extra = bestPartition(avail, 15, s => s.length);
+    const sets = [...chosen, ...extra].map(s => [...s]);
+    const rest = extendBoard(sets, avail.filter(i => !extra.flat().includes(i)));
+    const played = rack.length - rest.filter(i => !must.has(i)).length;
+    if (!best || played > best.played) best = { board: sets, played };
+  };
+  const rec = (avail, chosen) => {
+    if (performance.now() > deadline) return;
+    const mustLeft = avail.filter(i => must.has(i));
+    if (!mustLeft.length) return finish(avail, chosen);
+    const realMust = mustLeft.filter(i => !TT[i].j);
+    if (!realMust.length) {
+      // Only jokers from the table are left: tuck each one into a chosen combination.
+      const sets = chosen.map(s => [...s]); let rest = avail;
+      for (const j of mustLeft) {
+        const k = sets.findIndex(s => analyze([...s, j]).valid);
+        if (k < 0) return;
+        sets[k] = analyze([...sets[k], j]).layout; rest = rest.filter(i => i !== j);
+      }
+      return finish(rest, sets);
+    }
+    const cands = combosFrom(avail, must);
+    let pick = null;
+    for (const t of realMust) {
+      const kind = TT[t].c * 16 + TT[t].n;
+      const cs = cands.filter(s => s.some(i => must.has(i) && !TT[i].j && TT[i].c * 16 + TT[i].n === kind));
+      if (!cs.length) return;
+      if (!pick || cs.length < pick.length) pick = cs;
+    }
+    const mc = s => s.filter(i => must.has(i)).length;
+    pick.sort((a, b) => mc(b) - mc(a) || b.length - a.length);
+    for (const s of pick.slice(0, 5)) { const used = new Set(s); rec(avail.filter(i => !used.has(i)), [...chosen, s]); if (performance.now() > deadline) break; }
+  };
+  rec([...boardIds, ...rack], []);
+  return best;
+}
+
+// Decide a robot's move: a new table, or null to draw.
+function botMove(level, board, rack, melded) {
+  if (!melded) {
+    const sets = bestPartition(rack, level === 'easy' ? 60 : 200, s => analyze(s).value);
+    const pts = sets.reduce((a, s) => a + analyze(s).value, 0);
+    if (pts < 30) return null;
+    if (level === 'easy' && Math.random() < 0.25) return null;
+    return [...board.map(s => [...s]), ...sets];
+  }
+  if (level === 'easy') {
+    if (Math.random() < 0.35) return null;
+    const sets = bestPartition(rack, 60, s => s.length);
+    return sets.length ? [...board.map(s => [...s]), ...sets] : null;
+  }
+  const sets = bestPartition(rack, 150, s => s.length * 100 + analyze(s).value);
+  const used = new Set(sets.flat());
+  const nb = [...board.map(s => [...s]), ...sets];
+  const rest = extendBoard(nb, rack.filter(i => !used.has(i)));
+  let result = rest.length < rack.length ? { board: nb, played: rack.length - rest.length } : null;
+  if (level === 'hard') {
+    const r = rebuildTable(board.flat(), rack, 700);
+    if (r && r.played > (result ? result.played : 0)) result = r;
+  }
+  return result ? result.board : null;
+}
+
+/* ---------- Host: the referee ---------- */
+const isOnline = pid => pid === S.host || isBot(pid) || Date.now() - (lastSeen.get(pid) || 0) < 50000;
+function onlineMap() { const o = {}; S.players.forEach(p => o[p.pid] = isOnline(p.pid)); (S.order || []).forEach(id => o[id] = isOnline(id)); return o; }
+function publicView() {
+  const v = {
+    code: S.code, host: S.host, status: S.status, copies: S.copies || 2,
+    players: S.players.map(p => ({ pid: p.pid, name: p.name, bot: p.bot || null })), online: onlineMap(),
+    turnLimit: S.turnLimit || 0, solo: !!S.solo, lastPlayed: S.lastPlayed || [], lastBy: S.lastBy || null,
+    order: S.order || [], names: S.names || {}, board: S.board || [], turn: S.turn || 0, melded: S.melded || {},
+    rev: S.rev, log: S.log || [], turnStartedAt: S.turnStartedAt || 0, result: S.result || null,
+    poolCount: (S.pool || []).length, counts: {}, now: Date.now()
+  };
+  (S.order || []).forEach(id => v.counts[id] = S.racks[id].length);
+  return v;
+}
+function persistHost() { ls('rummi.host', JSON.stringify(S)); }
+let sendChain = Promise.resolve();
+function broadcast() {
+  persistHost();
+  const v = publicView();
+  receiveView({ ...v, myRack: S.racks && S.racks[me.id] ? S.racks[me.id] : null });
+  const racks = {};
+  sendChain = sendChain.then(async () => {
+    for (const id of (S.order || [])) {
+      const k = playerKeys.get(id);
+      if (id !== me.id && k) { try { racks[id] = await seal(k, S.racks[id]); } catch (e) {} }
+    }
+    netSend({ t: 'state', to: '*', v, racks, hk: ecdhPub });
+  }).catch(() => {});
+  scheduleBot();
+}
+
+let botTimer = null, botFor = null;
+function scheduleBot() {
+  if (!S || S.status !== 'playing') return;
+  const cur = S.order[S.turn];
+  const key = cur + ':' + S.rev;
+  if (!isBot(cur) || botFor === key) return;
+  botFor = key; clearTimeout(botTimer);
+  botTimer = setTimeout(() => {
+    if (!S || S.status !== 'playing' || S.order[S.turn] !== cur || botFor !== key) return;
+    const level = (S.players.find(p => p.pid === cur) || {}).bot || 'medium';
+    let board = null;
+    try { board = botMove(level, S.board, S.racks[cur], !!S.melded[cur]); } catch (e) { board = null; }
+    if (board && !validateMove(S.board, S.racks[cur], !!S.melded[cur], board)) handleAction(cur, { t: 'commit', rev: S.rev, board }, false);
+    else hostDraw(cur, false);
+  }, 1100 + rnd(1400));
+}
+
+// Turn clock: when the limit runs out, the player draws a tile and the turn passes.
+setInterval(() => {
+  if (!hosting || !S || S.status !== 'playing' || !S.turnLimit) return;
+  const cur = S.order[S.turn];
+  if (!isBot(cur) && Date.now() - S.turnStartedAt > S.turnLimit * 1000 + 3000) hostDraw(cur, 'timeout');
+}, 1000);
+function pushLog(msg) { S.log = [...(S.log || []), msg].slice(-15); }
+function nextTurn() { S.turn = (S.turn + 1) % S.order.length; S.turnStartedAt = Date.now(); }
+function endGame(winner) {
+  const sums = {};
+  S.order.forEach(id => sums[id] = S.racks[id].reduce((a, i) => a + tv(i), 0));
+  const reason = winner ? 'out' : 'blocked';
+  if (!winner) winner = [...S.order].sort((a, b) => sums[a] - sums[b])[0];
+  S.status = 'ended';
+  S.result = { winner, sums, reason };
+  pushLog(`${S.names[winner]} venceu a partida!`);
+}
+function hostDraw(pid, skipped) {
+  const who = S.names[pid];
+  S.rev++;
+  if (S.pool.length) {
+    S.racks[pid].push(S.pool.pop()); S.passes = 0;
+    pushLog(skipped === 'timeout' ? `${who} estourou o tempo e comprou uma peça.` : skipped ? `${who} foi pulado(a) e recebeu uma peça.` : `${who} comprou uma peça.`);
+  } else {
+    S.passes = (S.passes || 0) + 1;
+    pushLog(skipped === 'timeout' ? `${who} estourou o tempo e passou a vez.` : skipped ? `${who} foi pulado(a).` : `${who} passou a vez.`);
+    if (S.passes >= S.order.length) { endGame(null); return broadcast(); }
+  }
+  nextTurn();
+  broadcast();
+}
+function hostStart() {
+  const ps = S.players.slice(0, 8);
+  if (ps.length < 2) return 'São necessários pelo menos 2 jogadores.';
+  const copies = ps.length <= 4 ? 2 : 4;
+  const all = shuffle(tiles(copies).map(t => t.id));
+  const order = shuffle(ps.map(p => p.pid));
+  const racks = {}, names = {};
+  ps.forEach(p => names[p.pid] = p.name);
+  order.forEach(id => racks[id] = all.splice(0, 14));
+  Object.assign(S, {
+    status: 'playing', copies, order, names, racks, pool: all, board: [], turn: 0, melded: {}, passes: 0,
+    rev: S.rev + 1, turnStartedAt: Date.now(), result: null, lastPlayed: [], lastBy: null, log: [`Partida começou com ${order.length} jogadores. ${names[order[0]]} começa.`]
+  });
+  broadcast();
+  return null;
+}
+// pid is the verified sender; local actions from the host itself arrive with remote = false.
+async function handleAction(pid, m, remote) {
+  const reply = msg => { if (remote) netSend({ t: 'err', to: pid, msg }); else toast(msg, true); };
+  if (remote) {
+    const wasOnline = isOnline(pid);
+    lastSeen.set(pid, Date.now());
+    if (!wasOnline && m.t === 'ping') return broadcast();
+  }
+  const cur = S.order ? S.order[S.turn] : null;
+  switch (m.t) {
+    case 'hello': {
+      if (typeof m.epk === 'string') { try { playerKeys.set(pid, await deriveKey(m.epk)); } catch (e) {} }
+      const name = cleanName(m.name);
+      const p = S.players.find(p => p.pid === pid);
+      if (p) { if (S.status === 'lobby' && p.name !== name) { p.name = name; S.rev++; } }
+      else if (S.status === 'lobby' && m.join !== false) {
+        if (S.players.length >= 8) reply('Esta sala já tem 8 jogadores. Você está assistindo.');
+        else { S.players.push({ pid, name }); S.rev++; }
+      }
+      return broadcast();
+    }
+    case 'leave':
+      if (S.status === 'lobby') { S.players = S.players.filter(p => p.pid !== pid); S.rev++; }
+      lastSeen.delete(pid);
+      return broadcast();
+    case 'kick':
+      if (pid !== S.host || S.status !== 'lobby' || m.pid === S.host) return;
+      S.players = S.players.filter(p => p.pid !== m.pid); S.rev++;
+      netSend({ t: 'kicked', to: m.pid });
+      return broadcast();
+    case 'start':
+      if (pid !== S.host || S.status !== 'lobby') return;
+      { const err = hostStart(); if (err) reply(err); }
+      return;
+    case 'again':
+      if (pid !== S.host || S.status !== 'ended') return;
+      S = { code: S.code, host: S.host, status: 'lobby', players: S.players, rev: S.rev + 1, turnLimit: S.turnLimit || 0, solo: S.solo };
+      if (S.solo) { hostStart(); return; }
+      return broadcast();
+    case 'limit':
+      if (pid !== S.host || S.status !== 'lobby') return;
+      S.turnLimit = [0, 30, 60, 90, 120, 180].includes(m.v) ? m.v : 0; S.rev++;
+      return broadcast();
+    case 'addbot': {
+      if (pid !== S.host || S.status !== 'lobby' || S.players.length >= 8) return;
+      const level = BOT_LEVELS[m.level] ? m.level : 'medium';
+      let n = 1; while (S.players.some(p => p.pid === 'bot' + n)) n++;
+      S.players.push({ pid: 'bot' + n, name: `Robô ${n} (${BOT_LEVELS[level]})`, bot: level }); S.rev++;
+      return broadcast();
+    }
+    case 'commit': {
+      if (S.status !== 'playing' || cur !== pid) return;
+      if (m.rev !== S.rev) return reply('A mesa mudou antes da sua jogada chegar. Confira e tente de novo.');
+      const err = validateMove(S.board, S.racks[pid], !!S.melded[pid], m.board);
+      if (err) return reply(err);
+      const mine = new Set(S.racks[pid]);
+      const played = new Set(m.board.flat().filter(i => mine.has(i)));
+      S.board = m.board.map(s => analyze(s).layout);
+      S.racks[pid] = S.racks[pid].filter(i => !played.has(i));
+      S.melded[pid] = true; S.passes = 0; S.rev++;
+      S.lastPlayed = [...played]; S.lastBy = pid;
+      pushLog(`${S.names[pid]} baixou ${played.size} ${played.size === 1 ? 'peça' : 'peças'}.`);
+      if (!S.racks[pid].length) endGame(pid); else nextTurn();
+      return broadcast();
+    }
+    case 'draw':
+      if (S.status === 'playing' && cur === pid && m.rev === S.rev) hostDraw(pid, false);
+      return;
+    case 'skip':
+      if (S.status === 'playing' && S.order.includes(pid) && cur !== pid && m.rev === S.rev && Date.now() - S.turnStartedAt >= 85000) hostDraw(cur, true);
+      return;
+    case 'probe':
+      return broadcast();
+  }
+}
+
+let hostTimer = null;
+function hostRoom(c, saved) {
+  hosting = true; code = c; ls('rummi.code', c);
+  S = saved || { code: c, host: me.id, status: 'lobby', players: [{ pid: me.id, name: nick }], rev: 1 };
+  if (S.copies) tiles(S.copies);
+  if (S.solo) { broadcast(); return; }
+  netOpen(PREFIX + c, (from, m) => { if (m.to === 'host' && S) handleAction(from, m, true); });
+  broadcast();
+  // Re-send the table regularly so anyone who missed a message catches up and sees who is online.
+  clearInterval(hostTimer);
+  hostTimer = setInterval(() => { if (hosting && S) broadcast(); }, 20000);
+}
+
+/* ---------- Client ---------- */
+function send(m) {
+  if (hosting) { handleAction(me.id, m, false); return; }
+  netSend({ ...m, to: 'host' });
+}
+
+function joinRoom(c) {
+  code = c; hostPk = null; hostKey = null; hostKeyFor = null; lastHostMsg = 0;
+  st.screen = 'connecting'; st.msg = 'Procurando a sala ' + c + '…'; render();
+  netOpen(PREFIX + c, onClientMsg);
+  const hello = () => netSend({ t: 'hello', to: 'host', name: nick, epk: ecdhPub });
+  hello();
+  let lastPing = Date.now();
+  clearInterval(helloTimer);
+  helloTimer = setInterval(() => {
+    if (!code || hosting) return clearInterval(helloTimer);
+    const since = Date.now() - lastHostMsg;
+    if (!lastHostMsg || since > 45000) hello();      // not found yet, or host went quiet
+    else if (Date.now() - lastPing > 20000) { lastPing = Date.now(); netSend({ t: 'ping', to: 'host' }); }
+    const away = !!lastHostMsg && since > 50000;
+    if (away !== !!st.hostAway) { st.hostAway = away; render(); }
+  }, 4000);
+  clearTimeout(joinTimer);
+  joinTimer = setTimeout(() => {
+    if (code === c && !lastHostMsg) { toast('Sala não encontrada. Confira o código e se quem criou a sala está com o jogo aberto.', true); closeLocal(); }
+  }, 15000);
+}
+async function onClientMsg(from, m) {
+  if (m.to !== '*' && m.to !== me.id) return;
+  if (m.t === 'state') {
+    const v = m.v;
+    if (!v || v.code !== code) return;
+    if (!hostPk) hostPk = from;
+    if (from !== hostPk) return;
+    lastHostMsg = Date.now();
+    if (st.hostAway) st.hostAway = false;
+    if (G && v.rev < G.rev) return;
+    let myRack = null;
+    const sealed = m.racks && m.racks[me.id];
+    if (sealed && m.hk) {
+      try {
+        if (hostKeyFor !== m.hk) { hostKey = await deriveKey(m.hk); hostKeyFor = m.hk; }
+        myRack = await unseal(hostKey, sealed);
+      } catch (e) { myRack = null; }
+    }
+    if (G && v.rev < G.rev) return;
+    receiveView({ ...v, myRack });
+    return;
+  }
+  if (from !== hostPk) return;
+  lastHostMsg = Date.now();
+  if (m.t === 'err') toast(String(m.msg || 'Erro'), true);
+  else if (m.t === 'kicked') { toast('Você foi removido da sala.', true); closeLocal(); }
+  else if (m.t === 'closed') { toast('Quem criou a sala encerrou o jogo.', true); closeLocal(); }
+}
+
+function closeLocal() {
+  voiceReset();
+  code = null; G = null; W = null; S = null; hosting = false; sel.clear();
+  clearInterval(hostTimer); clearInterval(helloTimer); clearTimeout(joinTimer);
+  netClose(); lastSeen.clear(); playerKeys.clear();
+  prevBoard = null; prevRev = null; rackOrder = [];
+  ls('rummi.code', null); ls('rummi.host', null);
+  st.screen = 'home'; st.offline = false; st.hostAway = false; render();
+}
+function leaveRoom() {
+  if (hosting) netSend({ t: 'closed', to: '*' });
+  else netSend({ t: 'leave', to: 'host' });
+  setTimeout(closeLocal, 400);
+}
+
+/* ---------- Voice call ----------
+   Audio goes straight between devices (WebRTC); the relays only carry the handshake.
+   Whoever taps the phone starts the call; everyone else in the room gets an incoming-call
+   prompt to accept or decline. */
+const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }
+  // For calls on restrictive networks, add a TURN server here, for example:
+  // { urls: ['turn:SEU_SERVIDOR:443?transport=tcp'], username: 'USUARIO', credential: 'SENHA' }
+];
+const RING_MS = 40000;
+const voice = { inCall: false, stream: null, peers: new Map(), active: new Set(), callStart: 0,
+  ringing: null, ringTimer: null, ringTone: null, declined: false };
+const canMic = () => !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+const voiceOK = () => !!(code && G && !G.solo);
+const knownPlayer = pid => !!G && ((G.players || []).some(p => p.pid === pid) || (G.order || []).includes(pid));
+const MIC_OPTS = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
+const micError = e => toast(e && e.name === 'NotAllowedError'
+  ? 'O microfone foi bloqueado. Libere o acesso ao microfone nas configurações do navegador para este site.'
+  : 'Não foi possível usar o microfone deste aparelho.', true);
+
+function voiceMsg(from, m) {
+  if (!voiceOK() || (m.to !== '*' && m.to !== me.id) || !knownPlayer(from)) return;
+  if (m.t === 'v-hi') {
+    voice.active.add(from);
+    if (!voice.inCall) { if (!m.reply) ring(from); renderVoice(); return; }
+    if (!m.reply) dropPeer(from);             // a fresh join replaces any old connection
+    ensurePeer(from);
+    if (me.id < from) makeOffer(from);        // one side offers, so both never offer at once
+    if (!m.reply) netSend({ t: 'v-hi', to: from, reply: true });
+    renderVoice();
+  } else if (m.t === 'v-bye') {
+    voice.active.delete(from); dropPeer(from);
+    if (!voice.active.size) { voice.declined = false; stopRing(); }
+    else if (voice.ringing && voice.ringing.from === from) voice.ringing.from = [...voice.active][0];
+    renderVoice();
+  } else if (m.t === 'v-sig') { if (voice.inCall) onSignal(from, m); }
+  else if (m.t === 'v-decline') { if (voice.inCall) toast(`${nameOf(from)} recusou a chamada.`); }
+}
+
+function ensurePeer(pid) {
+  let p = voice.peers.get(pid);
+  if (p) return p;
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  voice.stream.getTracks().forEach(t => pc.addTrack(t, voice.stream));
+  const audio = document.createElement('audio');
+  audio.autoplay = true; audio.setAttribute('playsinline', '');
+  $('#voice-audio').appendChild(audio);
+  p = { pc, audio, state: 'connecting', offered: false };
+  pc.ontrack = e => { audio.srcObject = e.streams[0]; audio.play().catch(() => {}); };
+  pc.onconnectionstatechange = () => { p.state = pc.connectionState; renderVoice(); };
+  voice.peers.set(pid, p);
+  return p;
+}
+function dropPeer(pid) {
+  const p = voice.peers.get(pid);
+  if (!p) return;
+  try { p.pc.close(); } catch (e) {}
+  p.audio.srcObject = null; p.audio.remove();
+  voice.peers.delete(pid);
+}
+// The whole connection description is sent in one message once candidates are gathered.
+function gathered(pc) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(res => {
+    const t = setTimeout(res, 2500);
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } });
+  });
+}
+async function makeOffer(pid) {
+  const p = ensurePeer(pid);
+  if (p.offered) return;
+  p.offered = true;
+  try {
+    await p.pc.setLocalDescription(await p.pc.createOffer());
+    await gathered(p.pc);
+    netSend({ t: 'v-sig', to: pid, sdp: p.pc.localDescription });
+  } catch (e) { p.state = 'failed'; renderVoice(); }
+}
+async function onSignal(from, m) {
+  const d = m.sdp;
+  if (!d || (d.type !== 'offer' && d.type !== 'answer') || typeof d.sdp !== 'string') return;
+  let p = ensurePeer(from);
+  try {
+    if (d.type === 'offer') {
+      if (p.pc.signalingState !== 'stable') { dropPeer(from); p = ensurePeer(from); }
+      await p.pc.setRemoteDescription(d);
+      await p.pc.setLocalDescription(await p.pc.createAnswer());
+      await gathered(p.pc);
+      netSend({ t: 'v-sig', to: from, sdp: p.pc.localDescription });
+    } else if (p.pc.signalingState === 'have-local-offer') {
+      await p.pc.setRemoteDescription(d);
+    }
+  } catch (e) { p.state = 'failed'; renderVoice(); }
+}
+async function joinCall() {
+  stopRing();
+  if (!canMic()) return toast('A chamada só funciona com o jogo aberto por um endereço https://.', true);
+  try { voice.stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS); } catch (e) { return micError(e); }
+  if (!voiceOK()) { voice.stream.getTracks().forEach(t => t.stop()); voice.stream = null; return; }
+  voice.inCall = true; voice.callStart = Date.now(); voice.declined = false;
+  netSend({ t: 'v-hi', to: '*' });
+  renderVoice();
+}
+function leaveCall() {
+  if (!voice.inCall) return;
+  netSend({ t: 'v-bye', to: '*' });
+  [...voice.peers.keys()].forEach(dropPeer);
+  if (voice.stream) voice.stream.getTracks().forEach(t => t.stop());
+  voice.stream = null; voice.inCall = false; voice.callStart = 0;
+  renderVoice();
+}
+
+// Incoming call: prompt, vibration and a soft two-tone ring until answered or timed out.
+function ring(from) {
+  if (voice.declined) return;
+  const fresh = !voice.ringing;
+  voice.ringing = { from, at: Date.now() };
+  clearTimeout(voice.ringTimer);
+  voice.ringTimer = setTimeout(() => { stopRing(); renderVoice(); }, RING_MS);
+  if (fresh) startTone();
+}
+function startTone() {
+  stopTone();
+  try { navigator.vibrate && navigator.vibrate([400, 200, 400]); } catch (e) {}
+  let ac;
+  try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  const beep = () => {
+    if (ac.state === 'suspended') ac.resume().catch(() => {});
+    [0, 0.45].forEach((t, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = i ? 660 : 880; o.connect(g); g.connect(ac.destination);
+      const at = ac.currentTime + t;
+      g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.12, at + 0.03); g.gain.linearRampToValueAtTime(0, at + 0.35);
+      o.start(at); o.stop(at + 0.4);
+    });
+    try { navigator.vibrate && navigator.vibrate([400, 200, 400]); } catch (e) {}
+  };
+  beep();
+  voice.ringTone = { ac, timer: setInterval(beep, 2500) };
+}
+function stopTone() {
+  if (!voice.ringTone) return;
+  clearInterval(voice.ringTone.timer);
+  try { voice.ringTone.ac.close(); } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(0); } catch (e) {}
+  voice.ringTone = null;
+}
+function stopRing() {
+  clearTimeout(voice.ringTimer);
+  stopTone();
+  voice.ringing = null;
+}
+function answerCall(yes) {
+  const r = voice.ringing;
+  stopRing();
+  if (yes) { joinCall(); return; }
+  voice.declined = true;
+  if (r) voice.active.forEach(pid => netSend({ t: 'v-decline', to: pid }));
+  renderVoice();
+}
+
+function voiceReset() {
+  leaveCall();
+  stopRing();
+  voice.active.clear(); voice.declined = false;
+  renderVoice();
+}
+
+const ICON_PHONE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" fill="currentColor"/></svg>';
+const ICON_HANGUP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1a1 1 0 0 1-.56.9 11.5 11.5 0 0 0-2.66 1.85 1 1 0 0 1-1.41 0L.29 13.08a1 1 0 0 1 0-1.41A16.9 16.9 0 0 1 12 7c4.5 0 8.6 1.75 11.71 4.67a1 1 0 0 1 0 1.41l-2.48 2.49a1 1 0 0 1-1.41 0 11.3 11.3 0 0 0-2.67-1.85 1 1 0 0 1-.56-.9v-3.1A15 15 0 0 0 12 9z" fill="currentColor"/></svg>';
+function callConnected() { return [...voice.peers.values()].filter(p => p.state === 'connected').length; }
+const callClock = () => fmt(Math.max(0, Math.floor((Date.now() - voice.callStart) / 1000)));
+function phoneTitle() {
+  if (!voice.inCall) return voice.active.size ? 'Chamada em andamento: toque para entrar' : 'Começar chamada de voz com a mesa';
+  const n = callConnected();
+  return 'Na chamada' + (n ? ` com ${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : ', chamando os outros') + ': toque para desligar';
+}
+function voiceButtons() {
+  if (!voiceOK()) return '';
+  const n = callConnected();
+  const cls = voice.inCall ? 'live' : voice.active.size ? 'ongoing' : '';
+  return `<span class="vbtns">
+    <button class="ibtn phone ${cls}" id="phonebtn" data-act="phone" aria-pressed="${voice.inCall}" title="${esc(phoneTitle())}" aria-label="${esc(phoneTitle())}">${ICON_PHONE}${voice.inCall && n ? `<span class="badge">${n}</span>` : ''}</button>
+    ${voice.inCall ? `<span class="calltime" id="calltime" aria-label="Tempo de chamada">${callClock()}</span>` : ''}
+  </span>`;
+}
+// Update the phone button and the incoming-call prompt in place, without redrawing the table.
+const notified = new Set();
+function renderVoice() {
+  document.querySelectorAll('.vbtns').forEach(el => { el.outerHTML = voiceButtons(); });
+  const box = $('#voice');
+  if (!voiceOK()) { box.innerHTML = ''; return; }
+  voice.peers.forEach((p, pid) => {
+    if (p.state === 'failed' && !notified.has(pid)) {
+      notified.add(pid);
+      toast(`Não deu para conectar a chamada com ${nameOf(pid)}: a rede bloqueou o áudio.`, true);
+    } else if (p.state === 'connected') notified.delete(pid);
+  });
+  const r = voice.ringing;
+  if (!r || voice.inCall) { box.innerHTML = ''; return; }
+  const others = voice.active.size;
+  box.innerHTML = `<div class="incoming" role="alertdialog" aria-label="Chamada recebida">
+    <span class="ring-ic">${ICON_PHONE}</span>
+    <div class="who"><strong>${esc(nameOf(r.from))} está chamando</strong><span>${others > 1 ? `Chamada de voz com ${others} pessoas` : 'Chamada de voz da mesa'}</span></div>
+    <div class="answer">
+      <button class="cbtn no" data-act="callno" aria-label="Recusar chamada">${ICON_HANGUP}<span>Recusar</span></button>
+      <button class="cbtn yes" data-act="callyes" aria-label="Aceitar chamada">${ICON_PHONE}<span>Aceitar</span></button>
+    </div>
+  </div>`;
+}
+setInterval(() => { if (voice.inCall) { const el = document.getElementById('calltime'); if (el) el.textContent = callClock(); } }, 1000);
+
+/* ---------- Local view ---------- */
+const myTurn = () => !!(G && G.status === 'playing' && G.order[G.turn] === me.id);
+const nameOf = id => (G && G.names && G.names[id]) || ((G && G.players || []).find(p => p.pid === id) || {}).name || 'Jogador';
+const isPlayer = () => !!(G && G.order && G.order.includes(me.id) && G.myRack);
+
+/* The rack: two rows of slots. Tiles stay exactly where the player drops them, gaps included. */
+let slots = {};
+try { slots = JSON.parse(ls('rummi.slots') || '{}') || {}; } catch (e) { slots = {}; }
+let rackCols = 13;
+const saveSlots = () => ls('rummi.slots', JSON.stringify(slots));
+const slotKey = (r, c) => r + ':' + c;
+const rackIds = () => W ? W.rack : (isPlayer() ? G.myRack : []);
+function rackGrid(ids) {
+  const have = new Set(ids);
+  Object.keys(slots).forEach(k => { if (!have.has(+k)) delete slots[k]; });
+  const taken = new Map();
+  ids.forEach(id => {
+    const s = slots[id];
+    if (s && s.r >= 0 && s.r < 2 && s.c >= 0 && !taken.has(slotKey(s.r, s.c))) taken.set(slotKey(s.r, s.c), id);
+    else delete slots[id];
+  });
+  let maxC = 0;
+  Object.values(slots).forEach(s => { maxC = Math.max(maxC, s.c); });
+  rackCols = Math.max(13, Math.ceil(ids.length / 2) + 1, maxC + 1);
+  ids.forEach(id => {
+    if (slots[id]) return;
+    for (let r = 0; r < 2 && !slots[id]; r++) for (let c = 0; c < rackCols && !slots[id]; c++)
+      if (!taken.has(slotKey(r, c))) { slots[id] = { r, c }; taken.set(slotKey(r, c), id); }
+  });
+  return taken;
+}
+// Put tiles side by side starting at a slot; a tile already there moves to where the dragged one came from.
+function placeInRack(ids, r, c) {
+  const origin = ids.map(id => slots[id]);
+  ids.forEach(id => delete slots[id]);
+  const at = (rr, cc) => Object.keys(slots).find(k => slots[k].r === rr && slots[k].c === cc);
+  ids.forEach((id, k) => {
+    const cc = c + k, occ = at(r, cc);
+    if (occ !== undefined) { const o = origin[k]; if (o && at(o.r, o.c) === undefined) slots[occ] = o; else delete slots[occ]; }
+    slots[id] = { r, c: cc };
+  });
+  saveSlots();
+}
+// Tapping or grabbing the first tile of a combination laid out in the rack picks up the whole combination.
+function autoGroup(id) {
+  const s = slots[id];
+  if (!s) return null;
+  const grid = new Map(Object.entries(slots).map(([k, v]) => [slotKey(v.r, v.c), +k]));
+  const row = [];
+  for (let c = s.c; grid.has(slotKey(s.r, c)); c++) row.push(grid.get(slotKey(s.r, c)));
+  for (let k = row.length; k >= 3; k--) if (analyze(row.slice(0, k)).valid) return row.slice(0, k);
+  return null;
+}
+function sortRack(mode) {
+  const ids = [...rackIds()];
+  const key = mode === 'run' ? t => (t.j ? 999 : t.c * 20 + t.n) : t => (t.j ? 999 : t.n * 4 + t.c);
+  ids.sort((a, b) => key(TT[a]) - key(TT[b]) || a - b);
+  const grp = t => t.j ? 'j' : mode === 'run' ? 'c' + t.c : 'n' + t.n;
+  const groups = [];
+  ids.forEach(id => { const g = grp(TT[id]), last = groups[groups.length - 1]; if (last && last.g === g) last.ids.push(id); else groups.push({ g, ids: [id] }); });
+  const cols = Math.max(13, Math.ceil(ids.length / 2) + 1);
+  const gaps = ids.length + groups.length - 1 <= cols * 2;
+  slots = {};
+  let r = 0, c = 0;
+  groups.forEach(gr => {
+    if (c > 0 && gaps) c++;
+    if (r === 0 && c + gr.ids.length > cols && gr.ids.length <= cols) { r = 1; c = 0; }
+    gr.ids.forEach(id => { if (r === 0 && c >= cols) { r = 1; c = 0; } slots[id] = { r, c: c++ }; });
+  });
+  saveSlots(); render();
+}
+
+let liveBoard = null, lastAt = 0, lastKey = '';
+function receiveView(v) {
+  G = v; clockOff = (v.now || Date.now()) - Date.now();
+  tiles(v.copies || 2);
+  st.screen = G.status === 'lobby' ? 'lobby' : 'game';
+  const k = (G.lastPlayed || []).join(',') + '@' + (G.lastBy || '');
+  if (k !== lastKey) { lastKey = k; lastAt = Date.now(); }
+  if (prevRev !== G.rev) { st.confirmSkip = false; liveBoard = null; }
+  prevRev = G.rev;
+  if (myTurn()) {
+    if (!W || W.rev !== G.rev) { W = { rev: G.rev, board: G.board.map(s => [...s]), rack: [...G.myRack] }; sel.clear(); }
+  } else { W = null; sel.clear(); }
+  if (drag && drag.started) st.dirty = true; else render();
+}
+
+// While it is my turn, everyone else sees the table as I rearrange it.
+let liveTimer = null;
+function pushLive() {
+  if (!W || !G || G.solo) return;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => { if (W && myTurn()) netSend({ t: 'live', to: '*', rev: G.rev, board: W.board }); }, 250);
+}
+function liveMsg(from, m) {
+  if (!G || G.status !== 'playing' || myTurn() || from !== G.order[G.turn] || m.rev !== G.rev) return;
+  const b = m.board;
+  if (!Array.isArray(b) || b.length > 120 || !b.every(s => Array.isArray(s) && s.length <= 13 && s.every(i => Number.isInteger(i) && i >= 0 && i < TT.length))) return;
+  const all = b.flat();
+  if (new Set(all).size !== all.length) return;
+  liveBoard = { rev: m.rev, board: b };
+  if (drag && drag.started) st.dirty = true; else render();
+}
+
+function meldPoints() {
+  if (!W) return 0;
+  const mine = new Set(G.myRack);
+  return W.board.filter(s => s.every(i => mine.has(i))).map(analyze).filter(a => a.valid).reduce((a, b) => a + b.value, 0);
+}
+
+// Dropping a tile into the middle of a run splits it: 1-2-3-4-5-6 plus another 3 becomes 1-2-3 and 3-4-5-6.
+function splitRun(set, id) {
+  const t = TT[id], a = analyze(set);
+  if (t.j || !a.valid || a.kind !== 'run') return null;
+  const lay = a.layout, k = lay.findIndex(i => !TT[i].j);
+  if (TT[lay[k]].c !== t.c) return null;
+  const pos = t.n - (TT[lay[k]].n - k);
+  if (pos < 0 || pos >= lay.length) return null;
+  for (const [l, r] of [[[...lay.slice(0, pos), id], lay.slice(pos)], [lay.slice(0, pos + 1), [id, ...lay.slice(pos + 1)]]]) {
+    const al = analyze(l), ar = analyze(r);
+    if (al.valid && ar.valid) return [al.layout, ar.layout];
+  }
+  return null;
+}
+
+function moveSelected(t) {
+  if (!W || !sel.size) return;
+  const ids = [...sel];
+  const mine = new Set(G.myRack);
+  if (t.type === 'rack' && ids.some(i => !mine.has(i))) { toast('Peças que já estavam na mesa não podem voltar para o suporte.', true); return; }
+  W.board = W.board.map(s => s.filter(i => !sel.has(i)));
+  W.rack = W.rack.filter(i => !sel.has(i));
+  if (t.type === 'set' && W.board[t.i]) {
+    const target = W.board[t.i];
+    const split = ids.length === 1 && target.length && !analyze([...target, ids[0]]).valid ? splitRun(target, ids[0]) : null;
+    if (split) W.board.splice(t.i, 1, ...split); else target.push(...ids);
+  } else if (t.type === 'set' || t.type === 'new') W.board.push(ids);
+  else { W.rack.push(...ids); if (t.slot) placeInRack(ids, t.slot.r, t.slot.c); }
+  W.board = W.board.filter(s => s.length).map(s => { const a = analyze(s); return a.valid ? a.layout : s; });
+  sel.clear(); render(); pushLive();
+}
+const parseDrop = d => {
+  if (d === 'new') return { type: 'new' };
+  if (d.startsWith('rack')) { const p = d.split(':'); return p.length === 3 ? { type: 'rack', slot: { r: +p[1], c: +p[2] } } : { type: 'rack' }; }
+  return { type: 'set', i: +d.split(':')[1] };
+};
+
+function finishTurn() {
+  const err = validateMove(G.board, G.myRack, !!G.melded[me.id], W.board);
+  if (err) { toast(err, true); return; }
+  send({ t: 'commit', rev: G.rev, board: W.board });
+}
+
+/* ---------- Rendering ---------- */
+function tileHTML(id, onBoard, pending) {
+  const t = TT[id];
+  if (!t) return '';
+  const fresh = W && onBoard && G.myRack.includes(id);
+  const last = onBoard && G && (G.lastPlayed || []).includes(id);
+  const age = Date.now() - lastAt;
+  const blink = last && age < 2700;
+  const cls = ['tile', t.j ? 'joker' : 'c' + t.c, sel.has(id) ? 'sel' : '', fresh ? 'fresh' : '', last ? 'last' : '', blink ? 'blink' : '', pending ? 'pending' : ''].join(' ');
+  const label = t.j ? 'Coringa' : `${t.n} ${CNAME[t.c]}`;
+  return `<button class="${cls}" data-tile="${id}" aria-label="${label}" aria-pressed="${sel.has(id)}" ${W ? '' : 'tabindex="-1"'}${blink ? ` style="animation-delay:-${age}ms"` : ''}>${t.j ? JOKER_SVG : t.n}</button>`;
+}
+// The joker: a jester's face under a three-point cap in the tile colours.
+const JOKER_SVG = `<svg class="jk" viewBox="0 0 40 46" aria-hidden="true">
+  <path d="M6 21 L2 6 L13 15 Z" fill="var(--t0)"/><path d="M13 15 L20 2 L27 15 L20 19 Z" fill="var(--t1)"/><path d="M27 15 L38 6 L34 21 Z" fill="var(--t3)"/>
+  <path d="M5 22 Q20 12 35 22 L34 24 Q20 16 6 24 Z" fill="var(--t2)"/>
+  <circle cx="2.5" cy="5.5" r="2.4" fill="var(--t2)"/><circle cx="20" cy="2.6" r="2.4" fill="var(--t2)"/><circle cx="37.5" cy="5.5" r="2.4" fill="var(--t2)"/>
+  <circle cx="20" cy="32" r="11.5" fill="#fff6e3" stroke="var(--t2)" stroke-width="1.6"/>
+  <path d="M13.5 28.5 q2-2.4 4 0 M22.5 28.5 q2-2.4 4 0" fill="none" stroke="var(--t2)" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="20" cy="32.6" r="2.1" fill="var(--t0)"/>
+  <path d="M14 35.5 q6 6.5 12 0" fill="none" stroke="var(--t0)" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="12.3" cy="34.6" r="1.5" fill="var(--t0)" opacity=".35"/><circle cx="27.7" cy="34.6" r="1.5" fill="var(--t0)" opacity=".35"/>
+</svg>`;
+
+/* Orientation: the game always plays sideways. On a phone held upright the stage is
+   turned; where the browser allows it, the screen is also locked to landscape. */
+let rotated = false;
+const isTouch = () => matchMedia('(pointer: coarse)').matches;
+function applyOrientation() {
+  rotated = st.screen === 'game' && innerHeight > innerWidth && isTouch();
+  const r = document.documentElement;
+  r.classList.toggle('rot', rotated);
+  r.style.setProperty('--vw', innerWidth + 'px');
+  r.style.setProperty('--vh', innerHeight + 'px');
+}
+const stageSize = () => { const s = $('#stage'); return { w: s.clientWidth, h: s.clientHeight }; };
+// Pointer position inside the (possibly turned) stage.
+const toStage = (x, y) => rotated ? { x: y, y: innerWidth - x } : { x, y };
+let lockTried = false;
+document.addEventListener('pointerdown', () => {
+  if (lockTried || st.screen !== 'game' || !isTouch()) return;
+  lockTried = true;
+  const el = document.documentElement;
+  if (!el.requestFullscreen || !screen.orientation || !screen.orientation.lock) return;
+  el.requestFullscreen({ navigationUI: 'hide' }).then(() => screen.orientation.lock('landscape')).catch(() => {});
+}, true);
+let resizeTimer = null, lastSize = '';
+const onResize = () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    const k = innerWidth + 'x' + innerHeight;
+    if (k === lastSize) return;
+    lastSize = k;
+    if (st.screen === 'game' && !(drag && drag.started)) render(); else applyOrientation();
+  }, 120);
+};
+addEventListener('resize', onResize);
+if (window.ResizeObserver) new ResizeObserver(onResize).observe(document.documentElement);
+
+// Size the rack, player list and table tiles to the space the stage actually has.
+function layoutGame() {
+  const g = $('.game');
+  if (!g) return;
+  const { w, h } = stageSize();
+  const pw = Math.round(Math.min(190, Math.max(112, w * 0.165)));
+  const bw = Math.round(Math.min(100, Math.max(66, w * 0.095)));
+  const rt = Math.floor(Math.max(20, Math.min((w - pw - bw - 34) / rackCols - 3, h * 0.075, 46)));
+  const n = Math.max(1, G.order.length);
+  const av = Math.floor(Math.max(24, Math.min(54, (h - 24) / n - 14)));
+  g.style.setProperty('--pw', pw + 'px'); g.style.setProperty('--bw', bw + 'px');
+  g.style.setProperty('--rt', rt + 'px'); g.style.setProperty('--av', av + 'px');
+}
+// Shrink the table tiles step by step until every combination is visible without scrolling.
+function fitBoard() {
+  const b = $('.board');
+  if (!b) return;
+  const { h } = stageSize();
+  let tw = Math.floor(Math.max(18, Math.min(h * 0.07, 34)));
+  b.style.setProperty('--tw', tw + 'px');
+  for (let i = 0; i < 12 && b.scrollHeight > b.clientHeight + 1 && tw > 14; i++) { tw -= 2; b.style.setProperty('--tw', tw + 'px'); }
+}
+
+function render() {
+  st.dirty = false;
+  const s = st.screen;
+  applyOrientation();
+  app.className = 'scr-' + s;
+  if (s === 'boot') app.innerHTML = `<div class="screen"><div class="wrap"><p class="muted">Arrumando a mesa…</p></div></div>`;
+  else if (s === 'connecting') app.innerHTML = `<div class="screen"><div class="wrap">${logoHTML()}<div class="panel"><p>${esc(st.msg)}</p><button class="btn" data-act="cancel">Cancelar</button></div></div></div>`;
+  else if (s === 'noaccess') app.innerHTML = `<div class="screen"><div class="wrap">${logoHTML()}<div class="panel"><h2>Não dá para jogar daqui</h2><p class="muted">${esc(st.msg)}</p></div></div></div>`;
+  else if (s === 'home') app.innerHTML = homeHTML();
+  else if (s === 'lobby') app.innerHTML = lobbyHTML();
+  else if (s === 'game') { app.innerHTML = gameHTML(); layoutGame(); fitBoard(); }
+  renderVoice();
+}
+
+function logoHTML() {
+  return `<div class="logo" aria-label="Rummi">${[['R', 0], ['U', 1], ['M', 3], ['M', 2], ['I', 0]].map(([l, c]) => `<span class="tile c${c}">${l}</span>`).join('')}</div>`;
+}
+
+function homeHTML() {
+  return `<div class="screen"><div class="wrap">
+    ${logoHTML()}
+    <p class="lead">Rummi para 2 a 8 pessoas, cada uma no seu aparelho. Sem cadastro: crie uma sala e mande o código para a turma.</p>
+    <div class="panel">
+      <label class="label" for="nick">Seu nome na mesa</label>
+      <input id="nick" class="field" maxlength="20" placeholder="Ex.: Ana" value="${esc(nick)}" autocomplete="nickname">
+      <button class="btn primary" data-act="create">Criar sala nova</button>
+      <p class="muted">Quem cria a sala é o anfitrião: a partida roda no aparelho dele, então ele precisa deixar esta página aberta até o fim.</p>
+    </div>
+    <div class="panel">
+      <label class="label" for="joincode">Já tem um código?</label>
+      <div class="row"><input id="joincode" class="field code grow" maxlength="4" placeholder="ABCD" autocomplete="off"><button class="btn" data-act="join">Entrar</button></div>
+    </div>
+    <div class="panel">
+      <span class="label">Jogar sozinho contra robôs</span>
+      <div class="opts">
+        <label class="opt"><span class="muted">Robôs</span><select id="botcount" class="field">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === soloPrefs.count ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="opt"><span class="muted">Dificuldade</span><select id="botlevel" class="field">${Object.entries(BOT_LEVELS).map(([k, l]) => `<option value="${k}" ${k === soloPrefs.level ? 'selected' : ''}>${l[0].toUpperCase() + l.slice(1)}</option>`).join('')}</select></label>
+        <label class="opt"><span class="muted">Tempo por jogada</span><select id="sololimit" class="field">${limitOptions(soloPrefs.limit)}</select></label>
+      </div>
+      <button class="btn primary" data-act="solo">Jogar agora</button>
+    </div>
+    <details class="rules"><summary>Como se joga</summary><ul>
+      <li>Cada jogador recebe <b>14 peças</b>. Até 4 jogadores usamos 106 peças; de 5 a 8, <b>212 peças</b> (dois jogos).</li>
+      <li><b>Sequência:</b> 3 ou mais números seguidos da mesma cor (o 1 não vem depois do 13). <b>Grupo:</b> 3 ou 4 peças do mesmo número em cores diferentes.</li>
+      <li>A <b>primeira descida</b> precisa somar 30 pontos usando só peças do seu suporte.</li>
+      <li>Depois disso, você pode reorganizar a mesa à vontade, desde que tudo termine em combinações válidas e nenhuma peça da mesa volte para o seu suporte.</li>
+      <li>O <b>coringa</b> (o bobo da corte) vale a peça que substitui. Se sobrar no seu suporte no fim, vale 30 pontos contra você.</li>
+      <li>Com tempo por jogada, quem não finalizar a tempo compra uma peça e a vez passa.</li>
+      <li>Robôs: o <b>fácil</b> só baixa combinações do próprio suporte, o <b>médio</b> também encaixa peças nas pontas da mesa e o <b>difícil</b> reorganiza a mesa inteira.</li>
+      <li>Sem jogada? Compre uma peça. Ganha quem esvaziar o suporte primeiro. Se o monte acabar e todos passarem, vence quem tiver menos pontos.</li>
+      <li>Para mover: <b>arraste</b> a peça para uma combinação, para um espaço vazio da mesa (cria uma combinação nova) ou de volta para o suporte. Para levar várias juntas, toque nelas para selecionar e arraste qualquer uma delas.</li>
+    </ul></details>
+  </div></div>`;
+}
+
+function lobbyHTML() {
+  const ps = G.players;
+  const inList = ps.some(p => p.pid === me.id);
+  const isHost = G.host === me.id;
+  const n = ps.length;
+  return `<div class="screen"><div class="wrap">
+    ${st.offline ? '<div class="banner">Conexão perdida. Reconectando…</div>' : st.hostAway ? '<div class="banner">O anfitrião está desconectado. Esperando ele voltar…</div>' : ''}
+    <div class="panel">
+      <span class="label">Código da sala</span>
+      <div class="bigcode">${esc(code)}</div>
+      <p class="muted">Mande este código e o endereço desta página para até 7 pessoas.${isHost ? ' Deixe esta página aberta: a partida roda no seu aparelho.' : ''}</p>
+    </div>
+    <div class="panel">
+      <div class="row"><h2 class="grow">Jogadores</h2><span class="muted">${n} de 8</span></div>
+      <ul class="plist">${ps.map((p, i) => `<li><span class="seat">${i + 1}</span><span class="dot ${G.online[p.pid] ? '' : 'off'}" title="${G.online[p.pid] ? 'conectado' : 'desconectado'}"></span><span class="n">${esc(p.name)}${p.pid === me.id ? ' <span class="muted">(você)</span>' : ''}</span>${p.pid === G.host ? '<span class="tag">anfitrião</span>' : ''}${isHost && p.pid !== me.id ? `<button class="x" data-act="kick" data-id="${esc(p.pid)}" aria-label="Remover ${esc(p.name)}">&times;</button>` : ''}</li>`).join('')}</ul>
+      <p class="muted">${n >= 5 ? 'Com 5 ou mais jogadores a partida usa 212 peças.' : 'Até 4 jogadores a partida usa 106 peças.'}</p>
+      ${isHost && n < 8 ? `<div class="row"><select id="addlevel" class="field grow" aria-label="Dificuldade do robô">${Object.entries(BOT_LEVELS).map(([k, l]) => `<option value="${k}" ${k === soloPrefs.level ? 'selected' : ''}>Robô ${l}</option>`).join('')}</select><button class="btn" data-act="addbot">+ Adicionar robô</button></div>` : ''}
+    </div>
+    <div class="panel">
+      <span class="label">Tempo por jogada</span>
+      ${isHost ? `<div class="seg" role="group" aria-label="Tempo por jogada">${LIMITS.map(([v, l]) => `<button class="${(G.turnLimit || 0) === v ? 'on' : ''}" data-act="limit" data-v="${v}" aria-pressed="${(G.turnLimit || 0) === v}">${l}</button>`).join('')}</div>`
+        : `<p>${esc(limitLabel(G.turnLimit))}</p>`}
+      <p class="muted">Quem não finalizar a jogada a tempo compra uma peça e a vez passa.</p>
+    </div>
+    ${inList ? '' : `<div class="panel"><p>${n >= 8 ? 'A sala está cheia. Você pode assistir.' : 'Você está assistindo.'}</p>${n < 8 ? '<button class="btn primary" data-act="joinlobby">Entrar nesta partida</button>' : ''}</div>`}
+    <div class="row">
+      ${isHost ? `<button class="btn primary" data-act="start" ${n >= 2 ? '' : 'disabled'}>Começar partida</button>` : '<span class="muted grow">Esperando o anfitrião começar…</span>'}
+      ${voiceButtons()}
+      <button class="btn ${isHost ? 'warn' : ''}" data-act="leave">${isHost ? (st.confirmClose ? 'Confirmar: encerrar sala' : 'Encerrar sala') : 'Sair da sala'}</button>
+      ${isHost && n < 2 ? '<span class="muted">Esperando pelo menos 2 jogadores…</span>' : ''}
+    </div>
+  </div></div>`;
+}
+
+const LIMITS = [[0, 'Sem limite'], [30, '30 s'], [60, '1 min'], [90, '1 min 30'], [120, '2 min'], [180, '3 min']];
+const limitLabel = v => (LIMITS.find(l => l[0] === (v || 0)) || LIMITS[0])[1];
+const limitOptions = sel => LIMITS.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${l}</option>`).join('');
+// What the turn clock shows: time left when there is a limit, time spent otherwise.
+function clockText() {
+  const el = Math.max(0, Math.floor((Date.now() + clockOff - (G.turnStartedAt || Date.now())) / 1000));
+  if (!G.turnLimit) return { text: fmt(el), low: false, left: el, frac: 1 };
+  const left = Math.max(0, G.turnLimit - el);
+  return { text: fmt(left), low: left <= 10, left, frac: left / G.turnLimit };
+}
+const initials = id => {
+  if (isBot(id)) return 'R' + id.slice(3);
+  const w = nameOf(id).trim().split(/\s+/);
+  return ((w[0] || '?')[0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase();
+};
+const TILE_ICON = '<svg class="ti" viewBox="0 0 12 16" aria-hidden="true"><rect x="1" y="1" width="10" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="4" y="11" width="4" height="1.6" rx=".8" fill="currentColor"/></svg>';
+const ICON_EXIT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5l-7 7 7 7M21 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_UNDO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7H4V2M4.5 7A8.5 8.5 0 1 1 3.5 13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5L19.5 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function gameHTML() {
+  const cur = G.order[G.turn];
+  const mineTurn = myTurn();
+  const player = isPlayer();
+  const live = !W && liveBoard && liveBoard.rev === G.rev ? liveBoard.board : null;
+  const board = W ? W.board : live || G.board;
+  const onTable = new Set(G.board.flat());
+  const clock = clockText();
+  const isHost = G.host === me.id;
+  const playing = G.status === 'playing';
+
+  // Players down the left side; you sit at the bottom, as at a real table.
+  const seats = G.order.filter(id => id !== me.id).concat(G.order.includes(me.id) ? [me.id] : []);
+  const players = seats.map(id => {
+    const turn = id === cur && playing;
+    return `<li class="pl ${turn ? 'turn' : ''} ${G.online[id] ? '' : 'away'} ${id === me.id ? 'me' : ''}" title="${esc(nameOf(id))}${G.online[id] ? '' : ' (desconectado)'}">
+      <span class="av" ${turn ? 'id="turnav"' : ''} style="--p:${turn ? clock.frac : 0}"><span class="avt c${G.order.indexOf(id) % 4}" ${turn ? 'id="turnavt"' : ''}>${turn && G.turnLimit ? clock.left : esc(initials(id))}</span></span>
+      <span class="pinfo"><span class="pn">${esc(nameOf(id))}</span><span class="pc">${TILE_ICON}${G.counts[id]}${G.melded[id] ? '<span class="m" title="já fez a primeira descida">&#10003;</span>' : ''}</span></span>
+    </li>`;
+  }).join('');
+
+  // One status line above the table.
+  let info = `<span class="room" title="${G.solo ? 'Treino contra robôs' : 'Código da sala'}">${G.solo ? 'Treino' : esc(code)}</span>`;
+  if (playing) {
+    if (mineTurn) {
+      const pts = G.melded[me.id] ? 0 : meldPoints();
+      info += `<b class="you">Sua vez</b>${G.melded[me.id] ? '' : `<span class="meter ${pts >= 30 ? 'done' : ''}">Descida ${pts}/30</span>`}`;
+    } else info += `<span>Vez de <b>${esc(nameOf(cur))}</b></span>`;
+    info += `<span class="clock ${clock.low ? 'low' : ''}" id="timer" title="${G.turnLimit ? 'Tempo restante' : 'Tempo desta jogada'}">${clock.text}</span>`;
+    if (st.canSkip) info += `<button class="btn small warn" data-act="skip">${st.confirmSkip ? 'Confirmar: pular' : 'Pular ausente'}</button>`;
+  }
+  if (st.offline) info += '<span class="warnmsg">Sem conexão, reconectando…</span>';
+  else if (st.hostAway) info += '<span class="warnmsg">Anfitrião desconectado</span>';
+  info += `<span class="log" title="${esc(G.log.join('\n'))}">${esc(G.log[G.log.length - 1] || '')}</span>`;
+
+  let sets = board.map((s, i) => {
+    const a = W ? analyze(s) : null;
+    return `<div class="set ${a ? (a.valid ? 'ok' : 'bad') : ''}" data-drop="set:${i}">${s.map(id => tileHTML(id, true, !!live && !onTable.has(id))).join('')}</div>`;
+  }).join('');
+  if (W) sets += `<div class="newset" data-drop="new">Solte aqui para nova combinação</div>`;
+  if (!board.length && !W) sets = `<p class="empty">A mesa está vazia. A primeira descida precisa somar 30 pontos.</p>`;
+
+  let rack;
+  if (player) {
+    const grid = rackGrid(rackIds());
+    let cells = '';
+    for (let r = 0; r < 2; r++) for (let c = 0; c < rackCols; c++) {
+      const id = grid.get(slotKey(r, c));
+      cells += `<div class="rslot" data-drop="rack:${r}:${c}">${id !== undefined ? tileHTML(id, false) : ''}</div>`;
+    }
+    rack = `<div class="rackwrap"><div class="rack ${W ? 'live' : ''}" style="--cols:${rackCols}" aria-label="Seu suporte">${cells}</div></div>`;
+  } else rack = `<div class="rackwrap"><p class="muted watch">Você está assistindo a partida.</p></div>`;
+
+  const playedCount = W ? W.board.flat().filter(i => G.myRack.includes(i)).length : 0;
+  const leaveLabel = isHost && !G.solo ? (st.confirmClose ? 'Confirmar' : 'Encerrar') : 'Sair';
+  const side = `<nav class="side" aria-label="Ações">
+    <div class="sidetop">
+      <button class="sbtn exit ${st.confirmClose ? 'warn' : ''}" data-act="leave" title="${isHost && !G.solo ? 'Encerrar a sala' : 'Sair da sala'}" aria-label="${isHost && !G.solo ? 'Encerrar a sala' : 'Sair da sala'}">${ICON_EXIT}${st.confirmClose ? `<span>${leaveLabel}</span>` : ''}</button>
+      ${voiceButtons()}
+    </div>
+    <div class="sidemid">
+      <button class="sbtn sort" data-act="sort-run" title="Organizar por cor e sequência" ${player ? '' : 'disabled'}>789</button>
+      <button class="sbtn sort" data-act="sort-group" title="Organizar por número" ${player ? '' : 'disabled'}>777</button>
+    </div>
+    <div class="sidebot">
+      <button class="sbtn undo" data-act="undo" title="Desfazer as mudanças desta jogada" aria-label="Desfazer" ${mineTurn ? '' : 'disabled'}>${ICON_UNDO}</button>
+      <button class="sbtn ok" data-act="finish" title="Finalizar jogada" ${mineTurn && playedCount ? '' : 'disabled'}>${ICON_CHECK}<span>Finalizar</span></button>
+      <button class="sbtn draw" data-act="draw" title="${G.poolCount ? 'Comprar uma peça e passar a vez' : 'Passar a vez'}" ${mineTurn ? '' : 'disabled'}><span class="plus">${G.poolCount ? '+' : '&raquo;'}</span><span class="cnt">${TILE_ICON}${G.poolCount}</span></button>
+    </div>
+  </nav>`;
+
+  let modal = '';
+  if (G.status === 'ended' && G.result) {
+    const r = G.result;
+    const total = G.order.filter(id => id !== r.winner).reduce((a, id) => a + r.sums[id], 0);
+    const ranked = [...G.order].sort((a, b) => (a === r.winner ? -1 : b === r.winner ? 1 : r.sums[a] - r.sums[b]));
+    modal = `<div class="modal"><div class="card">
+      <span class="label">${r.reason === 'out' ? 'Bateu!' : 'Monte esgotado'}</span>
+      <h2>${esc(nameOf(r.winner))} venceu</h2>
+      <ul class="results">${ranked.map(id => `<li class="${id === r.winner ? 'win' : ''}"><span class="n">${esc(nameOf(id))}${id === me.id ? ' (você)' : ''}</span><span>${id === r.winner ? '+' + total : '−' + r.sums[id]}</span></li>`).join('')}</ul>
+      <p class="muted">Os pontos são a soma das peças que sobraram no suporte (coringa vale 30).</p>
+      <div class="row">${isHost ? '<button class="btn primary" data-act="again">Jogar de novo</button>' : '<span class="muted grow">O anfitrião pode começar outra partida.</span>'}<button class="btn" data-act="leave">${isHost && !G.solo ? 'Encerrar sala' : 'Sair da sala'}</button></div>
+    </div></div>`;
+  }
+
+  return `<div class="game">
+    <aside class="players"><ul>${players}</ul></aside>
+    <div class="info">${info}</div>
+    <main class="board ${W ? 'live' : ''}" ${W ? 'data-drop="new"' : ''}>${sets}</main>
+    ${rack}
+    ${side}
+  </div>${modal}`;
+}
+
+let toastTimer = null;
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, err ? 5200 : 2800);
+}
+function noAccess(msg) { st.screen = 'noaccess'; st.msg = msg; render(); }
+
+/* ---------- Events ---------- */
+function genCode() { const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; let s = ''; for (let i = 0; i < 4; i++) s += L[rnd(L.length)]; return s; }
+let soloPrefs = { count: 1, level: 'medium', limit: 0 };
+try { soloPrefs = { ...soloPrefs, ...JSON.parse(localStorage.getItem('rummi.solo') || '{}') }; } catch (e) {}
+
+function startSolo() {
+  hosting = true; code = 'SOLO'; ls('rummi.code', code);
+  S = { code, host: me.id, status: 'lobby', solo: true, turnLimit: soloPrefs.limit, players: [{ pid: me.id, name: nick }], rev: 1 };
+  for (let n = 1; n <= soloPrefs.count; n++) S.players.push({ pid: 'bot' + n, name: `Robô ${n} (${BOT_LEVELS[soloPrefs.level]})`, bot: soloPrefs.level });
+  hostStart();
+}
+
+function readNick() {
+  const v = ($('#nick') ? $('#nick').value : nick).trim().slice(0, 20);
+  if (!v) { toast('Escreva seu nome antes de entrar.', true); return null; }
+  nick = v; ls('rummi.nick', v); return v;
+}
+
+function act(name, el) {
+  switch (name) {
+    case 'create': if (readNick()) hostRoom(genCode(), null); return;
+    case 'solo': {
+      if (!readNick()) return;
+      soloPrefs.count = Math.min(7, Math.max(1, +$('#botcount').value || 1));
+      soloPrefs.level = BOT_LEVELS[$('#botlevel').value] ? $('#botlevel').value : 'medium';
+      soloPrefs.limit = +$('#sololimit').value || 0;
+      try { localStorage.setItem('rummi.solo', JSON.stringify(soloPrefs)); } catch (e) {}
+      startSolo(); return;
+    }
+    case 'callyes': answerCall(true); return;
+    case 'callno': answerCall(false); return;
+    case 'phone': voice.inCall ? leaveCall() : joinCall(); return;
+    case 'limit': send({ t: 'limit', v: +el.dataset.v }); return;
+    case 'addbot': soloPrefs.level = $('#addlevel').value; send({ t: 'addbot', level: soloPrefs.level }); return;
+    case 'join': {
+      if (!readNick()) return;
+      const c = ($('#joincode').value || '').toUpperCase().replace(/[^A-Z]/g, '');
+      if (c.length !== 4) { toast('O código da sala tem 4 letras.', true); return; }
+      ls('rummi.code', c); joinRoom(c); return;
+    }
+    case 'cancel': closeLocal(); return;
+    case 'joinlobby': send({ t: 'hello', name: nick, epk: ecdhPub }); return;
+    case 'leave':
+      if (hosting && S && S.solo) { closeLocal(); return; }
+      if (hosting && !st.confirmClose) { st.confirmClose = true; render(); setTimeout(() => { st.confirmClose = false; render(); }, 4000); return; }
+      st.confirmClose = false; leaveRoom(); return;
+    case 'kick': send({ t: 'kick', pid: el.dataset.id }); return;
+    case 'start': send({ t: 'start' }); return;
+    case 'again': send({ t: 'again' }); return;
+    case 'sort-run': sortRack('run'); return;
+    case 'sort-group': sortRack('group'); return;
+    case 'undo': W = { rev: G.rev, board: G.board.map(s => [...s]), rack: [...G.myRack] }; sel.clear(); render(); pushLive(); return;
+    case 'draw': send({ t: 'draw', rev: G.rev }); return;
+    case 'finish': finishTurn(); return;
+    case 'skip':
+      if (!st.confirmSkip) { st.confirmSkip = true; render(); return; }
+      st.confirmSkip = false; send({ t: 'skip', rev: G.rev }); return;
+  }
+}
+
+let suppressClick = false, press = null;
+document.addEventListener('click', e => {
+  if (suppressClick) { suppressClick = false; return; }
+  const a = e.target.closest('[data-act]');
+  if (a) { if (!a.disabled) act(a.dataset.act, a); return; }
+  const tile = e.target.closest('[data-tile]');
+  if (tile && W) {
+    const id = +tile.dataset.tile;
+    const group = press && press.id === id && press.group;
+    if (group) { const all = group.every(i => sel.has(i)); group.forEach(i => all ? sel.delete(i) : sel.add(i)); }
+    else sel.has(id) ? sel.delete(id) : sel.add(id);
+    render(); return;
+  }
+  const drop = e.target.closest('[data-drop]');
+  if (drop && W && sel.size) moveSelected(parseDrop(drop.dataset.drop));
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'joincode') act('join');
+  if (e.key === 'Escape' && sel.size) { sel.clear(); render(); }
+});
+
+/* Dragging tiles with finger or mouse. A tap selects; dragging a selected tile carries every
+   selected tile; grabbing the first tile of a combination in the rack carries the combination.
+   Outside your turn you can still rearrange your rack. */
+let drag = null;
+document.addEventListener('pointerdown', e => {
+  if (e.button > 0 || drag) return;
+  const t = e.target.closest('[data-tile]');
+  if (!t || !t.closest('.board, .rack')) { press = null; return; }
+  const inRack = !!t.closest('.rack');
+  if (!W && !(inRack && isPlayer())) return;
+  const id = +t.dataset.tile;
+  press = { id, group: inRack ? autoGroup(id) : null };
+  drag = { id, pid: e.pointerId, x0: e.clientX, y0: e.clientY, started: false, inRack, group: press.group };
+});
+function dropAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const d = el.closest('[data-drop]');
+  if (!d || (!W && !d.dataset.drop.startsWith('rack'))) return null;
+  return d;
+}
+function startDrag() {
+  if (W) {
+    if (drag.group && !sel.has(drag.id)) { sel.clear(); drag.group.forEach(i => sel.add(i)); }
+    else if (!sel.has(drag.id)) { sel.clear(); sel.add(drag.id); }
+    drag.ids = [...sel];
+  } else drag.ids = drag.group || [drag.id];
+  const g = document.createElement('div');
+  g.className = 'ghost';
+  g.style.setProperty('--tw', (parseFloat(getComputedStyle($('.rack') || $('.board')).getPropertyValue('--tw')) || 34) + 'px');
+  g.innerHTML = drag.ids.map(id => tileHTML(id, false)).join('');
+  $('#stage').appendChild(g);
+  drag.ghost = g;
+  drag.ids.forEach(id => document.querySelectorAll(`[data-tile="${id}"]`).forEach(x => x.classList.add('lifting')));
+  document.body.classList.add('dragging');
+  drag.started = true;
+}
+function endDragVisuals() {
+  if (drag && drag.ghost) drag.ghost.remove();
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.drophover').forEach(x => x.classList.remove('drophover'));
+  document.querySelectorAll('.lifting').forEach(x => x.classList.remove('lifting'));
+}
+document.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  if (!drag.started) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 7) return;
+    startDrag();
+  }
+  e.preventDefault();
+  const p = toStage(e.clientX, e.clientY);
+  drag.ghost.style.transform = `translate(${p.x - 16}px, ${p.y - 36}px)`;
+  const hit = dropAt(e.clientX, e.clientY);
+  document.querySelectorAll('.drophover').forEach(x => x !== hit && x.classList.remove('drophover'));
+  if (hit) hit.classList.add('drophover');
+}, { passive: false });
+document.addEventListener('pointerup', e => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  const d = drag;
+  if (!d.started) { drag = null; return; }
+  const hit = dropAt(e.clientX, e.clientY);
+  endDragVisuals(); drag = null;
+  suppressClick = true; setTimeout(() => { suppressClick = false; }, 50);
+  if (!hit) { render(); return; }
+  const t = parseDrop(hit.dataset.drop);
+  const fromRack = d.ids.every(i => rackIds().includes(i));
+  if (t.type === 'rack' && fromRack) {
+    if (t.slot) placeInRack(d.ids, t.slot.r, t.slot.c);
+    sel.clear(); render();
+  } else if (W) { sel = new Set(d.ids); moveSelected(t); }
+  else render();
+});
+document.addEventListener('pointercancel', () => { if (drag) { endDragVisuals(); drag = null; render(); } });
+
+setInterval(() => {
+  if (!G || G.status !== 'playing' || st.screen !== 'game') return;
+  const c = clockText();
+  const el = document.getElementById('timer');
+  if (el) { el.textContent = c.text; el.classList.toggle('low', c.low); }
+  const av = document.getElementById('turnav');
+  if (av) { av.style.setProperty('--p', c.frac); av.classList.toggle('low', c.low); }
+  const avt = document.getElementById('turnavt');
+  if (avt && G.turnLimit) avt.textContent = c.left;
+  // Time is up: if the table is valid, the move is finished for you.
+  if (myTurn() && W && G.turnLimit && st.autoSent !== G.rev && c.left <= 1) {
+    st.autoSent = G.rev;
+    const played = W.board.flat().some(i => G.myRack.includes(i));
+    if (played && !validateMove(G.board, G.myRack, !!G.melded[me.id], W.board)) {
+      send({ t: 'commit', rev: G.rev, board: W.board });
+      toast('Tempo esgotado: sua jogada estava certa e foi finalizada.');
+    }
+  }
+  const el2 = Math.floor((Date.now() + clockOff - (G.turnStartedAt || Date.now())) / 1000);
+  const canSkip = !G.turnLimit && !G.solo && el2 >= 90 && !myTurn() && isPlayer() && !isBot(G.order[G.turn]);
+  if (canSkip !== st.canSkip) { st.canSkip = canSkip; render(); }
+}, 1000);
+/* ---------- Boot ---------- */
+async function boot() {
+  if (!NT) return noAccess('Não foi possível carregar o módulo de conexão. Verifique a internet e recarregue a página.');
+  if (!window.crypto || !crypto.subtle) return noAccess('Abra o jogo por um endereço https:// (ou como arquivo no computador) para que a conexão segura funcione.');
+  const savedSk = ls('rummi.sk');
+  sk = savedSk ? unhex(savedSk) : NT.generateSecretKey();
+  if (!savedSk) ls('rummi.sk', hex(sk));
+  me.id = NT.getPublicKey(sk);
+  try { await initEcdh(); } catch (e) { return noAccess('Este navegador não suporta a criptografia do jogo. Use Chrome, Edge, Firefox ou Safari atualizados.'); }
+  nick = ls('rummi.nick') || '';
+  let savedHost = null;
+  try { savedHost = JSON.parse(ls('rummi.host') || 'null'); } catch (e) {}
+  const savedCode = ls('rummi.code');
+  if (savedHost && savedHost.code && savedHost.host === me.id) return hostRoom(savedHost.code, savedHost);
+  if (savedCode && nick) return joinRoom(savedCode);
+  st.screen = 'home'; render();
+}
+boot();
+})();
+</script>
+</body>
+</html>
