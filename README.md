@@ -23,7 +23,10 @@ Também dá para **jogar sozinho contra robôs**, nos níveis fácil, médio e d
 ## Recursos
 
 - Tempo por jogada configurável (30 s a 3 min). Uma jogada válida é finalizada sozinha quando o tempo acaba.
-- Arrastar peças com o dedo ou o mouse, inclusive várias de uma vez.
+- Arrastar peças com o dedo ou o mouse, inclusive várias de uma vez. No suporte, cada peça vai para qualquer posição.
+- Os botões de organizar o suporte só juntam peças que já formam uma sequência ou um grupo válido.
+- Trocar um coringa da mesa pela peça que ele representa solta o coringa numa combinação nova, pronta para completar.
+- A mesa não aceita uma peça repetida (mesmo número e cor) numa combinação.
 - Todos acompanham a jogada de quem está na vez, ao vivo.
 - Chamada de voz entre os jogadores.
 - Robôs para completar a mesa ou para treinar sozinho.

@@ -1106,22 +1106,30 @@ function autoGroup(id) {
   for (let k = row.length; k >= 3; k--) if (analyze(row.slice(0, k)).valid) return row.slice(0, k);
   return null;
 }
+// Lay blocks of tiles along the two rack rows, optionally with an empty slot between blocks; null if they don't fit.
+function packRack(blocks, cols, gap) {
+  const out = {}; let r = 0, c = 0;
+  for (const b of blocks) {
+    if (!b.length) continue;
+    if (c > 0 && gap) c++;
+    if (c + b.length > cols && b.length <= cols) { r++; c = 0; }
+    for (const id of b) { if (c >= cols) { r++; c = 0; } if (r > 1) return null; out[id] = { r, c: c++ }; }
+  }
+  return out;
+}
+// Sorting puts tiles side by side only when they form a combination that could go on the table
+// (runs first for 789, groups first for 777). Every other tile stands on its own, jokers last.
 function sortRack(mode) {
   const ids = [...rackIds()];
   const key = mode === 'run' ? t => (t.j ? 999 : t.c * 20 + t.n) : t => (t.j ? 999 : t.n * 4 + t.c);
-  ids.sort((a, b) => key(TT[a]) - key(TT[b]) || a - b);
-  const grp = t => t.j ? 'j' : mode === 'run' ? 'c' + t.c : 'n' + t.n;
-  const groups = [];
-  ids.forEach(id => { const g = grp(TT[id]), last = groups[groups.length - 1]; if (last && last.g === g) last.ids.push(id); else groups.push({ g, ids: [id] }); });
+  const byKey = (a, b) => key(TT[a]) - key(TT[b]) || a - b;
+  const combos = bestPartition(ids.filter(i => !TT[i].j), 150, s => s.length * 10 + (analyze(s).kind === mode ? 1 : 0))
+    .map(s => analyze(s)).sort((a, b) => (a.kind !== mode) - (b.kind !== mode) || byKey(a.layout[0], b.layout[0])).map(a => a.layout);
+  const used = new Set(combos.flat());
+  const loose = ids.filter(i => !used.has(i)).sort(byKey);
   const cols = Math.max(13, Math.ceil(ids.length / 2) + 1);
-  const gaps = ids.length + groups.length - 1 <= cols * 2;
-  slots = {};
-  let r = 0, c = 0;
-  groups.forEach(gr => {
-    if (c > 0 && gaps) c++;
-    if (r === 0 && c + gr.ids.length > cols && gr.ids.length <= cols) { r = 1; c = 0; }
-    gr.ids.forEach(id => { if (r === 0 && c >= cols) { r = 1; c = 0; } slots[id] = { r, c: c++ }; });
-  });
+  slots = packRack([...combos, ...loose.map(i => [i])], cols, true) || packRack([...combos, loose], cols, true)
+    || packRack([...combos, loose], cols, false) || packRack([[...ids].sort(byKey)], cols, false) || {};
   saveSlots(); render();
 }
 
@@ -1178,17 +1186,46 @@ function splitRun(set, id) {
   return null;
 }
 
+// Dropping the tile a joker stands for onto its combination swaps them: the tile takes the
+// joker's place and the joker goes to a new combination of its own, ready to be completed.
+function swapJoker(set, id) {
+  const t = TT[id], a = analyze(set);
+  if (t.j || !a.valid) return null;
+  const lay = a.layout, k = lay.findIndex(i => !TT[i].j);
+  for (let p = 0; p < lay.length; p++) {
+    if (!TT[lay[p]].j) continue;
+    if (a.kind === 'run' && (TT[lay[k]].c !== t.c || TT[lay[k]].n - k + p !== t.n)) continue;
+    const b = analyze(lay.map((i, q) => q === p ? id : i));
+    if (b.valid && b.kind === a.kind) return { set: b.layout, joker: lay[p] };
+  }
+  return null;
+}
+// Two tiles of the same number and colour can never share a combination.
+function hasTwin(ids) {
+  const seen = new Set();
+  return ids.some(i => { if (TT[i].j) return false; const k = TT[i].c * 16 + TT[i].n; if (seen.has(k)) return true; seen.add(k); return false; });
+}
+
 function moveSelected(t) {
   if (!W || !sel.size) return;
   const ids = [...sel];
   const mine = new Set(G.myRack);
   if (t.type === 'rack' && ids.some(i => !mine.has(i))) { toast('Peças que já estavam na mesa não podem voltar para o suporte.', true); return; }
+  let swap = null, split = null;
+  if (t.type === 'set' && W.board[t.i]) {
+    const target = W.board[t.i].filter(i => !sel.has(i));
+    if (ids.length === 1 && target.length) {
+      swap = swapJoker(target, ids[0]);
+      if (!swap && !analyze([...target, ids[0]]).valid) split = splitRun(target, ids[0]);
+    }
+    if (!swap && !split && hasTwin([...target, ...ids])) { toast('Essa combinação já tem uma peça igual a essa.', true); sel.clear(); render(); return; }
+  }
   W.board = W.board.map(s => s.filter(i => !sel.has(i)));
   W.rack = W.rack.filter(i => !sel.has(i));
   if (t.type === 'set' && W.board[t.i]) {
     const target = W.board[t.i];
-    const split = ids.length === 1 && target.length && !analyze([...target, ids[0]]).valid ? splitRun(target, ids[0]) : null;
-    if (split) W.board.splice(t.i, 1, ...split); else target.push(...ids);
+    if (swap) { W.board[t.i] = swap.set; W.board.push([swap.joker]); toast('Coringa liberado: complete a nova combinação dele.'); }
+    else if (split) W.board.splice(t.i, 1, ...split); else target.push(...ids);
   } else if (t.type === 'set' || t.type === 'new') W.board.push(ids);
   else { W.rack.push(...ids); if (t.slot) placeInRack(ids, t.slot.r, t.slot.c); }
   W.board = W.board.filter(s => s.length).map(s => { const a = analyze(s); return a.valid ? a.layout : s; });
@@ -1600,21 +1637,27 @@ function dropAt(x, y) {
   if (!d || (!W && !d.dataset.drop.startsWith('rack'))) return null;
   return d;
 }
+// A tile grabbed in the rack moves alone while it stays over the rack, so it can go anywhere;
+// carried up to the table it brings its whole combination. Tiles you selected always travel together.
 function startDrag() {
-  if (W) {
-    if (drag.group && !sel.has(drag.id)) { sel.clear(); drag.group.forEach(i => sel.add(i)); }
-    else if (!sel.has(drag.id)) { sel.clear(); sel.add(drag.id); }
-    drag.ids = [...sel];
-  } else drag.ids = drag.group || [drag.id];
+  const picked = W && sel.has(drag.id);
+  drag.full = picked ? [...sel] : W ? drag.group || [drag.id] : [drag.id];
+  drag.solo = picked || !drag.inRack ? drag.full : [drag.id];
   const g = document.createElement('div');
   g.className = 'ghost';
   g.style.setProperty('--tw', (parseFloat(getComputedStyle($('.rack') || $('.board')).getPropertyValue('--tw')) || 34) + 'px');
-  g.innerHTML = drag.ids.map(id => tileHTML(id, false)).join('');
   $('#stage').appendChild(g);
   drag.ghost = g;
-  drag.ids.forEach(id => document.querySelectorAll(`[data-tile="${id}"]`).forEach(x => x.classList.add('lifting')));
+  setDragIds(drag.inRack ? drag.solo : drag.full);
   document.body.classList.add('dragging');
   drag.started = true;
+}
+function setDragIds(ids) {
+  if (drag.ids === ids) return;
+  drag.ids = ids;
+  drag.ghost.innerHTML = ids.map(id => tileHTML(id, false)).join('');
+  document.querySelectorAll('.lifting').forEach(x => x.classList.remove('lifting'));
+  ids.forEach(id => document.querySelectorAll(`[data-tile="${id}"]`).forEach(x => x.classList.add('lifting')));
 }
 function endDragVisuals() {
   if (drag && drag.ghost) drag.ghost.remove();
@@ -1633,7 +1676,7 @@ document.addEventListener('pointermove', e => {
   drag.ghost.style.transform = `translate(${p.x - 16}px, ${p.y - 36}px)`;
   const hit = dropAt(e.clientX, e.clientY);
   document.querySelectorAll('.drophover').forEach(x => x !== hit && x.classList.remove('drophover'));
-  if (hit) hit.classList.add('drophover');
+  if (hit) { hit.classList.add('drophover'); setDragIds(hit.dataset.drop.startsWith('rack') ? drag.solo : drag.full); }
 }, { passive: false });
 document.addEventListener('pointerup', e => {
   if (!drag || e.pointerId !== drag.pid) return;
@@ -1644,11 +1687,12 @@ document.addEventListener('pointerup', e => {
   suppressClick = true; setTimeout(() => { suppressClick = false; }, 50);
   if (!hit) { render(); return; }
   const t = parseDrop(hit.dataset.drop);
-  const fromRack = d.ids.every(i => rackIds().includes(i));
+  const ids = t.type === 'rack' ? d.solo : d.full;
+  const fromRack = ids.every(i => rackIds().includes(i));
   if (t.type === 'rack' && fromRack) {
-    if (t.slot) placeInRack(d.ids, t.slot.r, t.slot.c);
+    if (t.slot) placeInRack(ids, t.slot.r, t.slot.c);
     sel.clear(); render();
-  } else if (W) { sel = new Set(d.ids); moveSelected(t); }
+  } else if (W) { sel = new Set(ids); moveSelected(t); }
   else render();
 });
 document.addEventListener('pointercancel', () => { if (drag) { endDragVisuals(); drag = null; render(); } });
